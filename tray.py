@@ -135,7 +135,7 @@ def _open_edge_app(url: str) -> None:
     if exe:
         try:
             subprocess.Popen(
-                [str(exe), f"--app={url}", "--window-size=1000,780", "--window-position=80,40"],
+                [str(exe), f"--app={url}", "--window-size=1120,780", "--window-position=80,40"],
                 creationflags=0x00000008, close_fds=True,
             )
             return
@@ -171,7 +171,7 @@ def run_panel_window() -> None:
     url = f"http://127.0.0.1:{PORT}/panel"
     try:
         import webview  # pywebview (usa o WebView2 do Windows)
-        webview.create_window(PANEL_TITLE, url, width=1000, height=780, min_size=(520, 600), background_color="#0b0a09")
+        webview.create_window(PANEL_TITLE, url, width=1120, height=780, min_size=(760, 560), background_color="#0b0a09")
         webview.start(private_mode=False, storage_path=str(_data_dir() / "webview"))
         log("janela: fechada pelo usuário")
     except BaseException:

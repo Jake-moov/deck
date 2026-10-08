@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+keyboard
+obsws-python
+pywin32
+pillow
+pystray
+pycaw
+comtypes
+psutil
+requests

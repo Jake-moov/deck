@@ -13,8 +13,9 @@ controlados pelo navegador do celular. O programa roda no Windows (bandeja do si
 
 Se o Windows perguntar sobre o Firewall, permita o acesso em **redes privadas**.
 Para abrir a janela depois, clique no ícone do Deck na bandeja (perto do relógio) — ou use o atalho.
-A janela tem duas abas: **Painel** (conexão, segurança, atualizações) e **Botões** (editor). O editor só funciona
-nela, no PC; o celular só usa os botões.
+O app tem três áreas na barra lateral: **Botões** (editor com prévia, arrastar para reordenar e salvamento automático),
+**Celular** (QR code, PIN e dispositivos pareados) e **Sistema** (iniciar com o Windows, atualizações e pasta de dados).
+O editor só funciona nessa janela, no PC; o celular só usa os botões.
 
 Dica: no celular, use "Adicionar à tela inicial" para abrir o Deck como um app em tela cheia.
 
