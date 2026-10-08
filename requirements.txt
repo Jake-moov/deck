@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+websockets
+h11
+pystray
+Pillow
+keyboard
+pycaw
+comtypes
+pywin32
+obsws-python
+qrcode
+pywebview
