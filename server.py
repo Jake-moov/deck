@@ -9,6 +9,7 @@ Memory footprint: this is a single-process FastAPI/uvicorn server with no GUI �
 typically well under 50MB RAM, since all rendering happens in your phone's browser.
 """
 
+import gc
 import hashlib
 import io
 import json
@@ -32,7 +33,7 @@ import keyboard
 
 
 # Versão do programa. É a única fonte da verdade: o make_update.py lê esta linha ao gerar o pacote.
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 # Versão embutida no .exe (não muda quando um pacote de atualização é carregado por cima).
 _BUNDLED_VERSION = globals().get("_BUNDLED_VERSION") or APP_VERSION
 
@@ -781,8 +782,19 @@ def _com_run(fn, *args, **kwargs):
             return fn(*args, **kwargs)
         except BaseException as e:  # noqa: BLE001 — convertido em ComError logo abaixo
             err = f"{type(e).__name__}: {e}"
-        # Fora do except: o traceback (e os ponteiros COM dos frames) é liberado AQUI, na thread de COM.
-        raise ComError(err)
+        finally:
+            # Roda na thread de COM: coleta AQUI os ciclos formados pelo job
+            # (wrappers COM presos em tracebacks ou em ciclos internos do
+            # comtypes/pycaw). Se o garbage collector cíclico de OUTRA thread
+            # os coletasse, o __del__ → Release() rodaria na thread errada e
+            # derrubaria o processo com access violation (c0000005) — foi
+            # exatamente o crash capturado pelo faulthandler em 2026-10-09.
+            gc.collect()
+        # Fora do except de propósito: o nome do `as` já foi apagado pelo
+        # interpretador e o traceback desta exceção não referencia frames
+        # com ponteiros COM — nada de COM viaja para a thread chamadora.
+        if err is not None:
+            raise ComError(err)
 
     try:
         return pool.submit(_job).result(timeout=20)
