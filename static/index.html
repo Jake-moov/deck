@@ -32,14 +32,26 @@
       <button class="gear-btn" id="fsBtn" aria-label="Tela cheia">⛶</button>
     </header>
 
-    <div class="screens-viewport">
+    <nav class="top-tabs" aria-label="Telas">
+      <div class="tabs-pill" id="screenTabs">
+        <span class="tabs-indicator" aria-hidden="true"></span>
+        <button class="tab-btn active" data-screen="apps" aria-label="Teclas">
+          <span class="tab-ico">⌨</span><span class="tab-lbl">Teclas</span>
+        </button>
+        <button class="tab-btn" data-screen="audio" aria-label="Áudio">
+          <span class="tab-ico">🎚</span><span class="tab-lbl">Áudio</span>
+        </button>
+      </div>
+    </nav>
+
+    <div class="screens-viewport" id="screensViewport">
       <div class="screens" id="screens">
         <section class="screen screen-apps">
           <div class="apps-layout">
             <main class="grid" id="grid"></main>
             <aside class="quick-volume">
               <button class="mute-btn" id="muteBtn" aria-label="Mudo">🔊</button>
-              <input type="range" min="0" max="100" value="50" id="volumeSlider" class="volume-slider vertical" aria-label="Volume geral" orient="vertical">
+              <div class="fader-slot" id="quickFader"></div>
               <span class="volume-readout" id="volumeReadout">--%</span>
             </aside>
           </div>
@@ -47,39 +59,26 @@
 
         <section class="screen screen-audio">
           <div class="audio-layout">
-            <div class="now-playing idle" id="nowPlaying">
+            <div class="now-playing compact idle" id="nowPlaying">
               <img class="np-art" id="npArt" alt="" src="/static/icon-192.png">
               <div class="np-info">
                 <div class="np-source" id="npSource"></div>
                 <div class="np-title" id="npTitle">Nada tocando</div>
                 <div class="np-artist" id="npArtist"></div>
-                <div class="np-progress-track"><div class="np-progress-fill" id="npProgressFill"></div></div>
               </div>
               <div class="np-controls">
                 <button class="np-btn" id="npPrev" aria-label="Anterior">⏮</button>
                 <button class="np-btn np-btn-play" id="npPlayPause" aria-label="Play/Pause">▶</button>
                 <button class="np-btn" id="npNext" aria-label="Próxima">⏭</button>
               </div>
+              <div class="np-progress-track"><div class="np-progress-fill" id="npProgressFill"></div></div>
             </div>
 
-            <div class="audio-mixer" id="audioMixer">
-              <div class="fader-col" id="masterFaderCol">
-                <span class="icon">🔊</span>
-                <input type="range" min="0" max="100" value="50" id="volumeSlider2" class="volume-slider vertical" aria-label="Volume geral" orient="vertical">
-                <span class="volume-readout" id="volumeReadout2">--%</span>
-                <button class="mute-btn" id="muteBtn2" aria-label="Mudo">🔇</button>
-                <span class="fader-label">Geral</span>
-              </div>
-            </div>
+            <div class="audio-mixer" id="audioMixer"></div>
           </div>
         </section>
       </div>
     </div>
-
-    <nav class="screen-tabs" id="screenTabs">
-      <button class="tab-btn active" data-screen="apps" aria-label="Apps">⌨</button>
-      <button class="tab-btn" data-screen="audio" aria-label="Áudio">🎚</button>
-    </nav>
   </div>
 
   <div class="install-tip" id="installTip"></div>
