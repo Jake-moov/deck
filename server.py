@@ -659,10 +659,30 @@ def save_config(request: Request, payload: dict = Body(...)):
     return {"ok": True}
 
 
+def _is_mixer_exe(path: str) -> bool:
+    """True se `path` é o exe de um app com áudio ativo agora, ou seja, um dos
+    que o mixer lista (campo exe_path de /api/volume/apps)."""
+    if os.name != "nt" or not path:
+        return False
+    try:
+        alvo = os.path.normcase(os.path.normpath(path))
+        return any(
+            a.get("exe_path") and os.path.normcase(os.path.normpath(a["exe_path"])) == alvo
+            for a in get_app_sessions()
+        )
+    except Exception:
+        return False
+
+
 @app.post("/api/extract-icon")
 def extract_icon_endpoint(request: Request, payload: dict = Body(...)):
-    _local_only(request)
     path = (payload.get("path") or "").strip()
+    # Caminhos arbitrários continuam só na janela do PC. O celular pareado só pode
+    # pedir o ícone dos exes que o próprio mixer está listando (antes, o
+    # _local_only barrava o celular com 403 e os cards ficavam com o ícone genérico).
+    host = (request.client.host if request.client else "") or ""
+    if not _is_loopback(host) and not _is_mixer_exe(path):
+        raise HTTPException(status_code=403, detail="Disponível apenas na janela do Deck no PC")
     if not path:
         return JSONResponse({"error": "caminho vazio"}, status_code=400)
     try:
@@ -972,6 +992,7 @@ try {
       'play_pause' { $r = Await ($s.TryTogglePlayPauseAsync()) ([bool]) }
       'next'       { $r = Await ($s.TrySkipNextAsync()) ([bool]) }
       'previous'   { $r = Await ($s.TrySkipPreviousAsync()) ([bool]) }
+      'seek'       { $r = Await ($s.TryChangePlaybackPositionAsync([TimeSpan]::FromMilliseconds([int64]$env:SMTC_POSITION_MS).Ticks)) ([bool]) }
     }
     ConvertTo-Json -InputObject @{ ok = [bool]$r } -Compress
     exit 0
@@ -1017,13 +1038,15 @@ _smtc_snapshot_cache = {"t": 0.0, "data": None}
 _smtc_thumb_cache: dict = {}  # (app,title,artist,album) -> (data_url|None, timestamp)
 
 
-def _run_smtc(action: str = "", target: str = "", thumb_for: str = "", timeout: float = 10.0) -> dict:
+def _run_smtc(action: str = "", target: str = "", thumb_for: str = "", timeout: float = 10.0,
+              position_ms=None) -> dict:
     if os.name != "nt":
         raise RuntimeError("Central de Mídia só existe no Windows")
     env = os.environ.copy()
     env["SMTC_ACTION"] = action
     env["SMTC_TARGET"] = target
     env["SMTC_THUMB_FOR"] = thumb_for
+    env["SMTC_POSITION_MS"] = "" if position_ms is None else str(int(position_ms))
     encoded = base64.b64encode(_SMTC_PS.encode("utf-16-le")).decode("ascii")
     proc = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -1163,6 +1186,160 @@ def api_now_playing_control(payload: dict = Body(...)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/nowplaying/seek")
+def api_now_playing_seek(payload: dict = Body(...)):
+    """Reposiciona a mídia: {"position_ms": 90000, "source": "<aumid>"} (source opcional)."""
+    try:
+        position_ms = int(payload.get("position_ms"))
+    except (TypeError, ValueError, OverflowError):
+        return JSONResponse({"error": "position_ms inválido"}, status_code=400)
+    if position_ms < 0:
+        return JSONResponse({"error": "position_ms não pode ser negativo"}, status_code=400)
+
+    source = (payload.get("source") or "").strip()
+    try:
+        if not source:
+            pick = _smtc_pick(_smtc_snapshot())
+            source = (pick or {}).get("app") or ""
+        _run_smtc(action="seek", target=source, position_ms=position_ms)
+        _smtc_snapshot_cache["t"] = 0.0  # força leitura fresca no próximo poll
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ---------- Sessões de mídia ↔ processo (play/pause por app no mixer) ----------
+
+_aumid_unmapped_logged: set = set()
+
+
+def _scan_processes() -> tuple:
+    """({aumid_minúsculo: nome_do_exe}, [nomes dos exes em execução]).
+    O AUMID vem de kernel32.GetApplicationUserModelId, com o handle aberto só com
+    PROCESS_QUERY_LIMITED_INFORMATION. Não usa COM, então pode rodar fora do _com_run."""
+    import ctypes
+    from ctypes import wintypes
+    import psutil
+
+    aumids: dict = {}
+    names: list = []
+    try:
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        k32.CloseHandle.restype = wintypes.BOOL
+        k32.GetApplicationUserModelId.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.UINT), wintypes.LPWSTR]
+        k32.GetApplicationUserModelId.restype = wintypes.LONG
+    except (OSError, AttributeError):
+        k32 = None  # sem a API: só o fallback heurístico
+
+    seen_names = set()
+    for p in psutil.process_iter(["pid", "name"]):
+        try:
+            name = p.info.get("name")
+            pid = p.info.get("pid")
+        except Exception:
+            continue
+        if not name:
+            continue
+        if name.lower() not in seen_names:
+            seen_names.add(name.lower())
+            names.append(name)
+        if k32 is None or not pid:
+            continue
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            continue
+        try:
+            length = wintypes.UINT(256)
+            buf = ctypes.create_unicode_buffer(256)
+            if k32.GetApplicationUserModelId(handle, ctypes.byref(length), buf) == 0 and buf.value:
+                aumids.setdefault(buf.value.lower(), name)
+        finally:
+            k32.CloseHandle(handle)
+    return aumids, names
+
+
+def _norm_app_id(value: str) -> str:
+    value = (value or "").strip().lower().split("!", 1)[0]
+    return value[:-4] if value.endswith(".exe") else value
+
+
+def _map_aumid(aumid: str, precise: dict, audio_procs: list, all_procs: list, overrides: dict):
+    """AUMID -> nome do exe. Ordem: 1) preciso, 2) heurística, 3) override do config (vence tudo)."""
+    proc = precise.get(aumid.lower())
+    if not proc:
+        norm = _norm_app_id(aumid)
+        if len(norm) >= 3:
+            # primeiro entre os apps com áudio (os cards do mixer), depois entre todos
+            for candidates in (audio_procs, all_procs):
+                for c in candidates:
+                    cn = _norm_app_id(c)
+                    if len(cn) >= 3 and (cn in norm or norm in cn):
+                        proc = c
+                        break
+                if proc:
+                    break
+    override = overrides.get(aumid.lower())
+    if override:
+        proc = str(override)
+    if proc:
+        # devolve com a mesma grafia do card do mixer (get_app_sessions)
+        canon = {c.lower(): c for c in all_procs}
+        canon.update({c.lower(): c for c in audio_procs})
+        proc = canon.get(proc.lower(), proc)
+    return proc
+
+
+@app.get("/api/media/sessions")
+def api_media_sessions():
+    """Sessões da Central de Mídia com o nome do processo, para o front ligar
+    cada sessão ao card do mixer: [{process, aumid, title, artist, playing}]."""
+    if os.name != "nt":
+        return []
+    try:
+        sessions = _smtc_snapshot().get("sessions") or []  # cache de 1.5s: sem PowerShell novo por poll
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    if not sessions:
+        return []
+
+    try:
+        precise, all_procs = _scan_processes()
+    except Exception:
+        precise, all_procs = {}, []
+    try:
+        audio_procs = [a["process"] for a in get_app_sessions()]
+    except Exception:
+        audio_procs = []
+    try:
+        raw = load_config().get("media_aumid_map") or {}
+        overrides = {str(k).lower(): v for k, v in raw.items()} if isinstance(raw, dict) else {}
+    except Exception:
+        overrides = {}
+
+    out = []
+    for s in sessions:
+        aumid = s.get("app") or ""
+        proc = _map_aumid(aumid, precise, audio_procs, all_procs, overrides) if aumid else None
+        if aumid and not proc and aumid not in _aumid_unmapped_logged:
+            _aumid_unmapped_logged.add(aumid)  # uma vez só, para não lotar o console
+            try:
+                sys.stderr.write(f"[media] AUMID sem processo: {aumid!r}. "
+                                 f"Ajuste em config.json -> media_aumid_map\n")
+            except Exception:
+                pass
+        out.append({
+            "process": proc,
+            "aumid": aumid,
+            "title": s.get("title") or "",
+            "artist": s.get("artist") or "",
+            "playing": bool(s.get("playing")),
+        })
+    return out
+
+
 @app.get("/api/volume")
 def api_get_volume():
     if os.name != "nt":
@@ -1250,6 +1427,50 @@ def api_get_mic():
         return get_mic_state()
     except Exception as e:
         return JSONResponse({"error": f"pycaw indisponível: {e}"}, status_code=500)
+
+
+@app.post("/api/mic")
+def api_set_mic(payload: dict = Body(...)):
+    """Microfone do Windows: {"level": 0-100} e/ou {"muted": bool}."""
+    if os.name != "nt":
+        return JSONResponse({"error": "só funciona no Windows"}, status_code=400)
+    level = payload.get("level")
+    muted = payload.get("muted")
+    if level is None and muted is None:
+        return JSONResponse({"error": "informe level e/ou muted"}, status_code=400)
+    if level is not None:
+        if isinstance(level, bool) or not isinstance(level, (int, float)) or not (0 <= level <= 100):
+            return JSONResponse({"error": "level deve ser um número de 0 a 100"}, status_code=400)
+    if muted is not None and not isinstance(muted, bool):
+        return JSONResponse({"error": "muted deve ser true ou false"}, status_code=400)
+
+    def job():
+        vol = _endpoint_volume("capture")
+        if level is not None:
+            vol.SetMasterVolumeLevelScalar(float(level) / 100, None)
+        if muted is not None:
+            vol.SetMute(1 if muted else 0, None)
+        return {"level": round(vol.GetMasterVolumeLevelScalar() * 100), "muted": bool(vol.GetMute())}
+
+    try:
+        return _com_run(job)
+    except Exception as e:
+        return JSONResponse({"error": f"pycaw indisponível: {e}"}, status_code=500)
+
+
+@app.post("/api/discord/mute")
+def api_discord_mute():
+    """Aperta o atalho de mute do Discord (config.json -> discord_mute_hotkey)."""
+    hotkey = "ctrl+alt+-"
+    try:
+        hotkey = (load_config().get("discord_mute_hotkey") or hotkey).strip() or hotkey
+    except Exception:
+        pass
+    try:
+        _send_hotkey(hotkey)
+        return {"ok": True, "hotkey": hotkey}
+    except Exception as e:
+        return JSONResponse({"error": f"não consegui enviar o atalho: {e}"}, status_code=500)
 
 
 @app.get("/api/volume/apps")
