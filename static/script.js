@@ -19,80 +19,24 @@ function sendVolume(level) {
   }, 60);
 }
 
-/* ---------- type metadata (drives the visual editor) ---------- */
+/* ---------- categorias (cor do LED de cada tecla) ---------- */
 
-const MEDIA_OPTIONS = [
-  ["play_pause", "Play/Pause"],
-  ["next", "Próxima faixa"],
-  ["prev", "Faixa anterior"],
-  ["vol_up", "Volume +"],
-  ["vol_down", "Volume -"],
-  ["mute", "Mudo"],
-  ["stop", "Parar"],
-];
-
-const TYPE_META = {
-  app:        { label: "Abrir programa (.exe)", valueLabel: "Caminho / nome do .exe", valueType: "text",   category: "app" },
-  start_app:  { label: "Abrir app instalado",   valueLabel: "App",                     valueType: "app_picker", category: "app" },
-  script:     { label: "Rodar script",         valueLabel: "Comando",                 valueType: "text",   category: "app" },
-  hotkey:     { label: "Atalho de teclado",    valueLabel: "Ex: ctrl+shift+m",        valueType: "text",   category: "hotkey" },
-  media:      { label: "Controle de mídia",    valueLabel: "Ação",                    valueType: "select", options: MEDIA_OPTIONS, category: "media" },
-  mic_mute:   { label: "Mutar microfone (sistema)", valueLabel: null,                  valueType: "none",   category: "media" },
-  obs_scene:  { label: "OBS · trocar cena",    valueLabel: "Nome da cena",            valueType: "text",   category: "obs" },
-  obs_mute:   { label: "OBS · mutar fonte",    valueLabel: "Nome da fonte de áudio",  valueType: "text",   category: "obs" },
-  obs_record: { label: "OBS · gravar",         valueLabel: null,                       valueType: "none",   category: "obs" },
-  obs_stream: { label: "OBS · transmitir",     valueLabel: null,                       valueType: "none",   category: "obs" },
-  macro:      { label: "Macro (sequência)",    valueLabel: null,                       valueType: "steps",  category: "macro" },
+const TYPE_CATEGORY = {
+  app: "app", start_app: "app", script: "app",
+  hotkey: "hotkey", media: "media", mic_mute: "media",
+  obs_scene: "obs", obs_mute: "obs", obs_record: "obs", obs_stream: "obs",
+  macro: "macro",
 };
-
-const STEP_TYPES = ["hotkey", "media", "app", "start_app", "script", "delay", "mic_mute", "obs_scene", "obs_mute", "obs_record", "obs_stream"];
 
 function categoryOf(type) {
-  return (TYPE_META[type] && TYPE_META[type].category) || "app";
+  return TYPE_CATEGORY[type] || "app";
 }
 
-function isIconImage(icon) {
-  return typeof icon === "string" && (icon.startsWith("/") || icon.startsWith("http"));
-}
-
-function isIconPreset(icon) {
-  return typeof icon === "string" && icon.startsWith("preset:");
-}
-
-// A small set of flat, single-stroke icons — picked for buttons instead of
-// typing an emoji. Each is just inner <svg> markup, rendered at 24x24.
-const ICON_PRESETS = {
-  gear:     '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4.7 1.65 1.65 0 0 0 10 3.2V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
-  power:    '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
-  folder:   '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-  globe:    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/>',
-  terminal: '<path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3"/><path d="M13 15h3"/>',
-  mail:     '<path d="M3 5h18v14H3z"/><path d="M3 6l9 7 9-7"/>',
-  chat:     '<path d="M4 4h16v12H8l-4 4z"/>',
-  gamepad:  '<path d="M6 9h12l2 8a2 2 0 0 1-2 2 3 3 0 0 1-2.4-1.2L14 16h-4l-1.6 1.8A3 3 0 0 1 6 19a2 2 0 0 1-2-2z"/><path d="M9 11v3"/><path d="M7.5 12.5h3"/><path d="M16 11h.01"/><path d="M18.5 13h.01"/>',
-  camera:   '<path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
-  video:    '<path d="M3 6h12v12H3z"/><path d="M15 9l6-3v12l-6-3z"/>',
-  music:    '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
-  image:    '<path d="M3 4h18v16H3z"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5.5-5.5L9 17"/>',
-  mic:      '<path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 19v3"/>',
-  headphones: '<path d="M4 13a8 8 0 0 1 16 0"/><path d="M4 13h2v6H4z"/><path d="M18 13h2v6h-2z"/>',
-  bell:     '<path d="M6 10a6 6 0 0 1 12 0v5l2 3H4l2-3z"/><path d="M10 21a2 2 0 0 0 4 0"/>',
-  star:     '<path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/>',
-  heart:    '<path d="M12 21s-7-4.3-9.5-8.5C.7 9 2 5.5 5.5 5c2-.3 3.6.7 4.5 2.2C10.9 5.7 12.5 4.7 14.5 5c3.5.5 4.8 4 3 7.5C19 16.7 12 21 12 21z"/>',
-  bolt:     '<path d="M13 2L4 14h6l-1 8 9-12h-6z"/>',
-  moon:     '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>',
-  sun:      '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4 12H2"/><path d="M22 12h-2"/><path d="M5 5l1.5 1.5"/><path d="M17.5 17.5L19 19"/><path d="M19 5l-1.5 1.5"/><path d="M6.5 17.5L5 19"/>',
-  link:     '<path d="M9 15l6-6"/><path d="M8 17l-3 3a3 3 0 0 1-4-4l3-3"/><path d="M16 7l3-3a3 3 0 0 1 4 4l-3 3"/>',
-  lock:     '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-  trash:    '<path d="M4 6h16"/><path d="M9 6V4h6v2"/><path d="M6 6l1 14h10l1-14"/>',
-  download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/>',
-};
-
+// Ícones prontos (ICON_PRESETS, isIconPreset, isIconImage) vêm de icons.js — compartilhado com o app do PC.
 function renderPresetIcon(key, cls) {
   const wrap = document.createElement("span");
   wrap.className = cls || "icon-svg";
-  const inner = ICON_PRESETS[key] || "";
-  wrap.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+  wrap.innerHTML = presetSvg(key);
   return wrap;
 }
 
@@ -101,10 +45,6 @@ function iconNode(icon) {
   if (isIconPreset(icon)) return renderPresetIcon(icon.slice(7));
   if (isIconImage(icon)) return h("img", { src: icon, class: "icon-img", alt: "" });
   return h("span", { class: "icon" }, icon || "•");
-}
-
-function genId() {
-  return "btn_" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 }
 
 /* ---------- tiny DOM helper ---------- */
@@ -129,13 +69,7 @@ const grid = document.getElementById("grid");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const brandMark = document.getElementById("brandMark");
-const gearBtn = document.getElementById("gearBtn");
-// O editor de botões só existe na janela do Deck no PC (o servidor também recusa edição vinda de outros aparelhos).
-const IS_LOCAL = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
-if (!IS_LOCAL) gearBtn.hidden = true;
 const fsBtn = document.getElementById("fsBtn");
-const editorOverlay = document.getElementById("editorOverlay");
-const editorSheet = document.getElementById("editorSheet");
 const installTip = document.getElementById("installTip");
 const volumeSlider = document.getElementById("volumeSlider");
 const volumeReadout = document.getElementById("volumeReadout");
@@ -149,7 +83,6 @@ const audioMixer = document.getElementById("audioMixer");
 
 let ws = null;
 let config = { grid: { columns: 3 }, buttons: [] };
-let draft = null; // editable clone while the editor is open
 
 function setStatus(state) {
   statusDot.className = "status-dot " + (state === "on" ? "on" : state === "off" ? "off" : "");
@@ -175,7 +108,7 @@ function renderGrid() {
   grid.style.setProperty("--cols", (config.grid && config.grid.columns) || 3);
   grid.innerHTML = "";
   if (!config.buttons.length) {
-    grid.appendChild(h("div", { class: "empty" }, "Nenhum botão configurado.\nToque em ⚙ para adicionar."));
+    grid.appendChild(h("div", { class: "empty" }, "Nenhum botão configurado.\nAdicione botões no app do Deck, no PC."));
     return;
   }
   for (const btn of config.buttons) {
@@ -235,455 +168,6 @@ screenTabs.addEventListener("click", (e) => {
   }
   if (target === "audio") { fetchNowPlaying(); fetchVolume(); fetchAppVolumes(); }
 });
-
-/* ---------- editor mode ---------- */
-
-function openEditor() {
-  draft = JSON.parse(JSON.stringify(config));
-  if (!draft.grid) draft.grid = { columns: 3 };
-  renderEditor();
-  editorOverlay.classList.add("open");
-}
-
-function closeEditor() {
-  editorOverlay.classList.remove("open");
-  draft = null;
-}
-
-async function saveEditor() {
-  const saveBtn = editorSheet.querySelector(".icon-btn.save");
-  if (saveBtn) saveBtn.textContent = "…";
-  try {
-    const res = await fetch("/api/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    if (!res.ok) throw new Error("save failed");
-    config = draft;
-    renderGrid();
-    closeEditor();
-  } catch (e) {
-    if (saveBtn) saveBtn.textContent = "✕";
-    console.error(e);
-  }
-}
-
-function renderEditor() {
-  editorSheet.innerHTML = "";
-
-  const header = h("div", { class: "editor-header" }, [
-    h("h2", {}, "EDITAR DECK"),
-    h("div", { class: "actions" }, [
-      h("button", { class: "icon-btn", onclick: closeEditor }, "✕"),
-      h("button", { class: "icon-btn save", onclick: saveEditor }, "✓"),
-    ]),
-  ]);
-  editorSheet.appendChild(header);
-
-  editorSheet.appendChild(
-    h("div", { class: "field-row" }, [
-      h("label", {}, "Colunas"),
-      h("input", {
-        type: "number", min: "2", max: "5", value: String(draft.grid.columns || 3),
-        oninput: (e) => { draft.grid.columns = parseInt(e.target.value, 10) || 3; },
-      }),
-    ])
-  );
-
-  const list = h("div", { class: "btn-list" });
-  draft.buttons.forEach((btn, idx) => list.appendChild(renderButtonCard(btn, idx)));
-  editorSheet.appendChild(list);
-
-  editorSheet.appendChild(
-    h("button", {
-      class: "add-btn",
-      onclick: () => {
-        draft.buttons.push({ id: genId(), label: "Novo botão", icon: "⭐", type: "app", value: "" });
-        renderEditor();
-      },
-    }, "+ Novo botão")
-  );
-}
-
-function renderButtonCard(btn, idx) {
-  const expanded = btn._open;
-  const meta = TYPE_META[btn.type] || TYPE_META.app;
-
-  const row = h("div", { class: "btn-card-row", onclick: () => { btn._open = !btn._open; renderEditor(); } }, [
-    iconNode(btn.icon),
-    h("div", { class: "meta" }, [
-      h("div", { class: "lbl" }, btn.label || btn.id),
-      h("div", { class: "typ" }, meta.label),
-    ]),
-    h("div", { class: "ops" }, [
-      h("button", { class: "mini-btn", onclick: (e) => { e.stopPropagation(); moveButton(idx, -1); } }, "↑"),
-      h("button", { class: "mini-btn", onclick: (e) => { e.stopPropagation(); moveButton(idx, 1); } }, "↓"),
-      h("button", { class: "mini-btn danger", onclick: (e) => { e.stopPropagation(); removeButton(idx); } }, "🗑"),
-    ]),
-  ]);
-
-  const card = h("div", { class: "btn-card" }, [row]);
-  if (expanded) card.appendChild(renderButtonForm(btn, idx));
-  return card;
-}
-
-function moveButton(idx, dir) {
-  const j = idx + dir;
-  if (j < 0 || j >= draft.buttons.length) return;
-  [draft.buttons[idx], draft.buttons[j]] = [draft.buttons[j], draft.buttons[idx]];
-  renderEditor();
-}
-
-function removeButton(idx) {
-  draft.buttons.splice(idx, 1);
-  renderEditor();
-}
-
-function renderIconField(btn) {
-  const frag = document.createDocumentFragment();
-
-  frag.appendChild(h("div", { class: "field-row" }, [
-    h("label", {}, "Emoji"),
-    h("input", {
-      value: isIconPreset(btn.icon) || isIconImage(btn.icon) ? "" : (btn.icon || ""),
-      placeholder: "opcional, ex: 🎮",
-      maxlength: "4",
-      oninput: (e) => { btn.icon = e.target.value; },
-    }),
-  ]));
-
-  const grid = h("div", { class: "icon-preset-grid" });
-  grid.style.display = "none";
-  let open = false;
-
-  function renderGridItems() {
-    grid.innerHTML = "";
-    for (const key of Object.keys(ICON_PRESETS)) {
-      grid.appendChild(h("button", {
-        class: "icon-preset-item" + (btn.icon === `preset:${key}` ? " selected" : ""),
-        onclick: (e) => { e.preventDefault(); btn.icon = `preset:${key}`; renderEditor(); },
-      }, [renderPresetIcon(key)]));
-    }
-  }
-
-  const toggleBtn = h("button", {
-    class: "pc-only-btn",
-    onclick: (e) => {
-      e.preventDefault();
-      open = !open;
-      grid.style.display = open ? "grid" : "none";
-      if (open) renderGridItems();
-    },
-  }, "🎨 Escolher ícone pronto");
-
-  frag.appendChild(h("div", { class: "icon-preset-row" }, [toggleBtn, grid]));
-  return frag;
-}
-
-function renderButtonForm(btn, idx) {
-  const body = h("div", { class: "btn-card-body" });
-
-  body.appendChild(renderIconField(btn));
-
-  body.appendChild(h("div", { class: "field-row" }, [
-    h("label", {}, "Nome"),
-    h("input", { value: btn.label || "", oninput: (e) => { btn.label = e.target.value; } }),
-  ]));
-
-  const typeSelect = h("select", {
-    onchange: (e) => {
-      btn.type = e.target.value;
-      if (btn.type === "macro" && !btn.steps) btn.steps = [];
-      renderEditor();
-    },
-  }, Object.entries(TYPE_META).map(([key, m]) =>
-    h("option", { value: key, ...(btn.type === key ? { selected: "selected" } : {}) }, m.label)
-  ));
-  body.appendChild(h("div", { class: "field-row" }, [h("label", {}, "Tipo"), typeSelect]));
-
-  const meta = TYPE_META[btn.type] || TYPE_META.app;
-
-  if (meta.valueType === "text") {
-    body.appendChild(h("div", { class: "field-row" }, [
-      h("label", {}, meta.valueLabel),
-      h("input", { value: btn.value || "", oninput: (e) => { btn.value = e.target.value; } }),
-    ]));
-    if (btn.type === "app" || btn.type === "script") {
-      body.appendChild(renderPickFileRow(btn));
-      body.appendChild(renderIconExtractRow(btn));
-    }
-    if (btn.type === "hotkey") {
-      body.appendChild(renderHotkeyRecordRow(btn));
-    }
-  } else if (meta.valueType === "select") {
-    body.appendChild(h("div", { class: "field-row" }, [
-      h("label", {}, meta.valueLabel),
-      h("select", { onchange: (e) => { btn.value = e.target.value; } },
-        meta.options.map(([val, lbl]) => h("option", { value: val, ...(btn.value === val ? { selected: "selected" } : {}) }, lbl))
-      ),
-    ]));
-  } else if (meta.valueType === "app_picker") {
-    body.appendChild(renderAppPicker(btn));
-    body.appendChild(renderIconExtractRow(btn));
-  } else if (meta.valueType === "steps") {
-    body.appendChild(renderStepsEditor(btn, idx));
-  }
-
-  return body;
-}
-
-let appListCache = null; // fetched once per editor session, reused across buttons
-
-function renderAppPicker(btn) {
-  const wrap = document.createDocumentFragment();
-
-  wrap.appendChild(h("div", { class: "field-row" }, [
-    h("label", {}, "App"),
-    h("input", {
-      value: btn.value ? (btn._appName || btn.value) : "",
-      readonly: "readonly",
-      placeholder: "nenhum selecionado",
-    }),
-  ]));
-
-  if (btn.value) {
-    wrap.appendChild(renderIconExtractRow(btn));
-  }
-
-  const status = h("span", {}, "🔎 Escolher app instalado");
-  const listBox = h("div", { class: "app-picker-list" });
-  let open = false;
-
-  const searchInput = h("input", {
-    class: "app-picker-search",
-    placeholder: "Buscar pelo nome…",
-    oninput: (e) => filterList(e.target.value),
-  });
-
-  function filterList(query) {
-    const q = query.trim().toLowerCase();
-    listBox.innerHTML = "";
-    if (!appListCache) return;
-    const matches = appListCache.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 40);
-    if (!matches.length) {
-      listBox.appendChild(h("div", { class: "app-picker-empty" }, "nada encontrado"));
-      return;
-    }
-    for (const a of matches) {
-      listBox.appendChild(h("button", {
-        class: "app-picker-item",
-        onclick: (e) => {
-          e.preventDefault();
-          btn.value = a.app_id;
-          btn._appName = a.name;
-          if (!btn.label || btn.label === "Novo botão") btn.label = a.name;
-          renderEditor();
-          autoFetchAppIcon(btn, a.app_id);
-        },
-      }, a.name));
-    }
-  }
-
-  const toggleBtn = h("button", {
-    class: "pc-only-btn",
-    onclick: async (e) => {
-      e.preventDefault();
-      open = !open;
-      if (!open) { listBox.style.display = "none"; searchInput.style.display = "none"; return; }
-      listBox.style.display = "flex";
-      searchInput.style.display = "block";
-      if (!appListCache) {
-        status.textContent = "Carregando lista de apps…";
-        try {
-          const res = await fetch("/api/installed-apps");
-          const data = await res.json();
-          if (!res.ok) {
-            status.textContent = data.error || "Falha ao listar apps";
-            return;
-          }
-          appListCache = data.apps;
-          status.textContent = "🔎 Escolher app instalado";
-          filterList("");
-        } catch (err) {
-          status.textContent = "Falha — só funciona rodando no Windows";
-        }
-      } else {
-        filterList(searchInput.value);
-      }
-    },
-  }, [status]);
-
-  listBox.style.display = "none";
-  searchInput.style.display = "none";
-
-  wrap.appendChild(h("div", { class: "pc-only-row" }, [toggleBtn]));
-  wrap.appendChild(h("div", { class: "pc-only-hint" }, "lista os mesmos apps do Menu Iniciar — funciona também para apps da Microsoft Store, como o WhatsApp. Só disponível editando pelo navegador do próprio PC."));
-  wrap.appendChild(searchInput);
-  wrap.appendChild(listBox);
-  return wrap;
-}
-
-async function autoFetchAppIcon(btn, app_id) {
-  // Runs right after picking an app from the "Abrir app instalado" search —
-  // pulls its real icon automatically, no extra tap needed. Fails silently
-  // (keeps whatever emoji was already there) since this is a background nicety.
-  try {
-    const res = await fetch("/api/extract-icon", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: app_id }),
-    });
-    const data = await res.json();
-    if (res.ok && data.icon_url) {
-      btn.icon = data.icon_url;
-      renderEditor();
-    }
-  } catch (err) { /* keep the emoji fallback */ }
-}
-
-function renderIconExtractRow(btn) {
-  const preview = isIconImage(btn.icon) ? h("img", { class: "extract-preview", src: btn.icon, alt: "" }) : null;
-  const status = h("span", {}, "🖼 Usar ícone do programa");
-
-  const btnEl = h("button", {
-    class: "extract-btn",
-    onclick: async (e) => {
-      e.preventDefault();
-      if (!btn.value) return;
-      status.textContent = "Extraindo…";
-      try {
-        const res = await fetch("/api/extract-icon", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: btn.value }),
-        });
-        const data = await res.json();
-        if (res.ok && data.icon_url) {
-          btn.icon = data.icon_url;
-          renderEditor();
-        } else {
-          status.textContent = data.error || "Não foi possível extrair o ícone";
-        }
-      } catch (err) {
-        status.textContent = "Falha ao extrair — servidor sem pywin32?";
-      }
-    },
-  }, [status]);
-
-  const row = h("div", { class: "extract-row" }, [btnEl]);
-  if (preview) row.insertBefore(preview, btnEl);
-  return row;
-}
-
-function renderPickFileRow(btn) {
-  const label = h("span", {}, "📂 Escolher arquivo no PC");
-  const btnEl = h("button", {
-    class: "pc-only-btn",
-    onclick: async (e) => {
-      e.preventDefault();
-      label.textContent = "Abrindo seletor no PC…";
-      try {
-        const res = await fetch("/api/pick-file");
-        const data = await res.json();
-        if (res.ok && data.path) {
-          btn.value = data.path;
-          renderEditor();
-        } else {
-          label.textContent = data.error || "Nenhum arquivo escolhido";
-          setTimeout(() => { label.textContent = "📂 Escolher arquivo no PC"; }, 2500);
-        }
-      } catch (err) {
-        label.textContent = "Falha — só funciona rodando no Windows";
-        setTimeout(() => { label.textContent = "📂 Escolher arquivo no PC"; }, 2500);
-      }
-    },
-  }, [label]);
-
-  const wrap = document.createDocumentFragment();
-  wrap.appendChild(h("div", { class: "pc-only-row" }, [btnEl]));
-  wrap.appendChild(h("div", { class: "pc-only-hint" }, "abre a janela de arquivos do Windows — só funciona se você estiver editando pelo navegador do próprio PC"));
-  return wrap;
-}
-
-function renderHotkeyRecordRow(btn) {
-  const label = h("span", {}, "⌨ Gravar atalho");
-  const btnEl = h("button", {
-    class: "pc-only-btn",
-    onclick: (e) => {
-      e.preventDefault();
-      btnEl.classList.add("recording");
-      label.textContent = "Pressione a combinação…";
-
-      const handler = (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (["Control", "Shift", "Alt", "Meta"].includes(ev.key)) return; // wait for the real key
-        const parts = [];
-        if (ev.ctrlKey) parts.push("ctrl");
-        if (ev.altKey) parts.push("alt");
-        if (ev.shiftKey) parts.push("shift");
-        if (ev.metaKey) parts.push("windows");
-        parts.push(normalizeKeyName(ev.key));
-        btn.value = parts.join("+");
-        window.removeEventListener("keydown", handler, true);
-        renderEditor();
-      };
-      window.addEventListener("keydown", handler, true);
-    },
-  }, [label]);
-
-  const wrap = document.createDocumentFragment();
-  wrap.appendChild(h("div", { class: "pc-only-row" }, [btnEl]));
-  wrap.appendChild(h("div", { class: "pc-only-hint" }, "captura a tecla pressionada no teclado do PC — só funciona editando pelo navegador do próprio PC"));
-  return wrap;
-}
-
-function normalizeKeyName(key) {
-  const map = {
-    " ": "space", "Escape": "esc", "ArrowUp": "up", "ArrowDown": "down",
-    "ArrowLeft": "left", "ArrowRight": "right", "Enter": "enter",
-    "Backspace": "backspace", "Tab": "tab", "Delete": "delete",
-  };
-  if (map[key]) return map[key];
-  return key.length === 1 ? key.toLowerCase() : key.toLowerCase();
-}
-
-function renderStepsEditor(btn) {
-  if (!btn.steps) btn.steps = [];
-  const wrap = h("div", { class: "steps-list" });
-
-  btn.steps.forEach((step, sIdx) => {
-    const stepMeta = TYPE_META[step.type] || { valueType: "text", valueLabel: "Valor" };
-    const row = h("div", { class: "step-row" });
-
-    row.appendChild(h("select", {
-      onchange: (e) => { step.type = e.target.value; renderEditor(); },
-    }, STEP_TYPES.map((t) =>
-      h("option", { value: t, ...(step.type === t ? { selected: "selected" } : {}) }, t === "delay" ? "espera (ms)" : (TYPE_META[t] ? TYPE_META[t].label : t))
-    )));
-
-    if (step.type === "delay") {
-      row.appendChild(h("input", { type: "number", value: step.value || 300, oninput: (e) => { step.value = parseInt(e.target.value, 10) || 0; } }));
-    } else if (stepMeta.valueType === "select") {
-      row.appendChild(h("select", { onchange: (e) => { step.value = e.target.value; } },
-        stepMeta.options.map(([val, lbl]) => h("option", { value: val, ...(step.value === val ? { selected: "selected" } : {}) }, lbl))
-      ));
-    } else if (stepMeta.valueType === "text" || stepMeta.valueType === "app_picker") {
-      row.appendChild(h("input", { value: step.value || "", placeholder: stepMeta.valueType === "app_picker" ? "AppID (copie do botão principal)" : stepMeta.valueLabel, oninput: (e) => { step.value = e.target.value; } }));
-    }
-
-    row.appendChild(h("button", { class: "mini-btn danger", onclick: () => { btn.steps.splice(sIdx, 1); renderEditor(); } }, "✕"));
-    wrap.appendChild(row);
-  });
-
-  wrap.appendChild(h("button", {
-    class: "add-step-btn",
-    onclick: () => { btn.steps.push({ type: "hotkey", value: "" }); renderEditor(); },
-  }, "+ adicionar passo"));
-
-  return wrap;
-}
 
 /* ---------- volume strip (soundbar) ---------- */
 
@@ -1003,8 +487,6 @@ setInterval(renderNpProgress, 500);
 
 /* ---------- wire up ---------- */
 
-gearBtn.addEventListener("click", openEditor);
-editorOverlay.addEventListener("click", (e) => { if (e.target === editorOverlay) closeEditor(); });
 
 fsBtn.addEventListener("click", () => {
   if (!document.fullscreenElement) {

@@ -16,6 +16,7 @@ do PIN e das atualizações fica no server.py (que pode ser atualizado sem recom
 tudo do servidor é acessado como `server.<nome>` na hora do uso.
 """
 
+import faulthandler
 import os
 import subprocess
 import sys
@@ -74,9 +75,68 @@ def _install_hooks() -> None:
 
     sys.excepthook = _hook
     threading.excepthook = _thread_hook
+    _enable_faulthandler()
+
+
+def _enable_faulthandler() -> None:
+    """Crash NATIVO (segfault / access violation, ex.: c0000005 no _ctypes.pyd) não é exceção Python:
+    nenhum excepthook roda e o processo morre sem escrever nada. O faulthandler é o único que
+    consegue, no instante da queda, despejar o stack Python de TODAS as threads. Em build
+    --windowed não existe stderr, então apontamos explicitamente para o deck_error.log."""
+    try:
+        p = _data_dir() / "deck_error.log"
+        if p.exists() and p.stat().st_size > 256 * 1024:
+            p.write_bytes(p.read_bytes()[-128 * 1024:])
+        f = open(p, "a", encoding="utf-8", buffering=1)
+        f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} [pid {os.getpid()}] faulthandler ativo — se o Deck cair por "
+                f"erro nativo, o stack aparece logo abaixo como 'Windows fatal exception'\n")
+        f.flush()
+        faulthandler.enable(file=f, all_threads=True)
+        _keep["faulthandler_file"] = f  # precisa continuar aberto durante toda a vida do processo
+    except Exception:
+        log("faulthandler não pôde ser ativado:\n" + traceback.format_exc())
+
+
+def _running_marker() -> Path:
+    return _data_dir() / "deck.running"
+
+
+def _mark_running() -> None:
+    """Deixa um marcador enquanto o Deck está aberto. Se na próxima abertura ele ainda existir e o
+    processo antigo não existir mais, o Deck anterior caiu sem passar pelo 'Sair'."""
+    try:
+        import psutil
+        marker = _running_marker()
+        if marker.exists():
+            try:
+                pid_s, ctime_s = marker.read_text(encoding="utf-8").split(":")
+                pid, ctime = int(pid_s), float(ctime_s)
+                alive = psutil.pid_exists(pid) and abs(psutil.Process(pid).create_time() - ctime) < 2
+            except Exception:
+                alive = False
+            if not alive:
+                log("ATENÇÃO: a execução anterior do Deck terminou de forma anormal (sem 'Sair'). "
+                    "Procure acima por 'Windows fatal exception' — é o stack do crash.")
+        me = psutil.Process(os.getpid())
+        marker.write_text(f"{me.pid}:{me.create_time()}", encoding="utf-8")
+    except Exception:
+        log("marcador de execução falhou:\n" + traceback.format_exc())
+
+
+def _clear_running() -> None:
+    try:
+        _running_marker().unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 # ---------- utilidades do Windows ----------
+
+def _win(name: str):
+    """DLL do Windows com last-error preservado (para ler GetLastError sem ser sobrescrito)."""
+    import ctypes
+    return ctypes.WinDLL(name, use_last_error=True)
+
 
 def create_mutex(name: str):
     """(handle, já_existia). Usa use_last_error: ctypes.windll.GetLastError() pode ser sobrescrito
@@ -85,9 +145,10 @@ def create_mutex(name: str):
         return None, False
     try:
         import ctypes
-        k = ctypes.WinDLL("kernel32", use_last_error=True)
-        k.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
-        k.CreateMutexW.restype = ctypes.c_void_p
+        from ctypes import wintypes
+        k = _win("kernel32")
+        k.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        k.CreateMutexW.restype = wintypes.HANDLE
         handle = k.CreateMutexW(None, False, name)
         return handle, ctypes.get_last_error() == 183  # ERROR_ALREADY_EXISTS
     except Exception:
@@ -99,7 +160,11 @@ def message_box(text: str, title: str = "Deck") -> None:
     if os.name == "nt":
         try:
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, text, title, 0x30)  # MB_ICONWARNING
+            from ctypes import wintypes
+            u = _win("user32")
+            u.MessageBoxW.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.UINT]
+            u.MessageBoxW.restype = ctypes.c_int
+            u.MessageBoxW(None, text, title, 0x30)  # MB_ICONWARNING
             return
         except Exception:
             pass
@@ -135,7 +200,7 @@ def _open_edge_app(url: str) -> None:
     if exe:
         try:
             subprocess.Popen(
-                [str(exe), f"--app={url}", "--window-size=1000,780", "--window-position=80,40"],
+                [str(exe), f"--app={url}", "--window-size=1120,780", "--window-position=80,40"],
                 creationflags=0x00000008, close_fds=True,
             )
             return
@@ -149,13 +214,22 @@ def _focus_existing_panel() -> None:
         return
     try:
         import ctypes
-        u = ctypes.windll.user32
+        from ctypes import wintypes
+        u = _win("user32")
+        # HWND é um ponteiro de 64 bits: sem restype/argtypes o ctypes o trataria como int de 32 bits
+        # e devolveria um handle truncado para ShowWindow/SetForegroundWindow.
+        u.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+        u.FindWindowW.restype = wintypes.HWND
+        u.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        u.ShowWindow.restype = wintypes.BOOL
+        u.SetForegroundWindow.argtypes = [wintypes.HWND]
+        u.SetForegroundWindow.restype = wintypes.BOOL
         hwnd = u.FindWindowW(None, PANEL_TITLE)
         if hwnd:
             u.ShowWindow(hwnd, 9)  # SW_RESTORE
             u.SetForegroundWindow(hwnd)
     except Exception:
-        pass
+        log("focar janela falhou:\n" + traceback.format_exc())
 
 
 def run_panel_window() -> None:
@@ -171,7 +245,7 @@ def run_panel_window() -> None:
     url = f"http://127.0.0.1:{PORT}/panel"
     try:
         import webview  # pywebview (usa o WebView2 do Windows)
-        webview.create_window(PANEL_TITLE, url, width=1000, height=780, min_size=(520, 600), background_color="#0b0a09")
+        webview.create_window(PANEL_TITLE, url, width=1120, height=780, min_size=(760, 560), background_color="#0b0a09")
         webview.start(private_mode=False, storage_path=str(_data_dir() / "webview"))
         log("janela: fechada pelo usuário")
     except BaseException:
@@ -321,6 +395,8 @@ def main() -> None:
         )
         return
 
+    _mark_running()
+
     # Imports pesados só aqui (o processo da janela --panel não precisa deles).
     import pystray as _pystray
     import uvicorn as _uvicorn
@@ -365,13 +441,29 @@ def main() -> None:
         raise
     finally:
         if _stop_requested:
+            _clear_running()
             log("encerrado normalmente")
         else:
             log("ENCERRADO INESPERADAMENTE: icon.run() retornou sem pedido de saída")
 
 
+def crash_test() -> None:
+    """`Deck.exe --crash-test`: provoca de propósito um access violation, só para conferir que o
+    deck_error.log recebe o stack do crash (o faulthandler funcionando num build sem console)."""
+    import ctypes
+    _install_hooks()
+    log("crash-test: vou provocar um access violation de propósito")
+
+    def chamada_ctypes_proposital():
+        ctypes.string_at(0)
+
+    chamada_ctypes_proposital()
+
+
 if __name__ == "__main__":
-    if "--panel" in sys.argv[1:]:
+    if "--crash-test" in sys.argv[1:]:
+        crash_test()
+    elif "--panel" in sys.argv[1:]:
         run_panel_window()
     else:
         main()

@@ -11,6 +11,3 @@ spotify_token.json
 deck_error.log
 icons/
 thumbs/
-installer_output/
-deck_setup.iss
-streamdeck/
