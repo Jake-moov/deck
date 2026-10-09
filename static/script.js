@@ -49,14 +49,13 @@ function clamp(v, lo = 0, hi = 100) {
 /* ---------- connection state ---------- */
 
 const grid = document.getElementById("grid");
-const statusDot = document.getElementById("statusDot");
-const statusText = document.getElementById("statusText");
 const brandMark = document.getElementById("brandMark");
+const brand = document.getElementById("brand");
 const fsBtn = document.getElementById("fsBtn");
 const installTip = document.getElementById("installTip");
 const volumeReadout = document.getElementById("volumeReadout");
 const muteBtn = document.getElementById("muteBtn");
-const quickFaderSlot = document.getElementById("quickFader");
+const quickVolumeAside = document.getElementById("quickVolume");
 const screens = document.getElementById("screens");
 const screensViewport = document.getElementById("screensViewport");
 const screenTabs = document.getElementById("screenTabs");
@@ -66,11 +65,11 @@ let ws = null;
 let config = { grid: { columns: 3 }, buttons: [] };
 
 function setStatus(state) {
-  statusDot.className = "status-dot " + (state === "on" ? "on" : state === "off" ? "off" : "");
-  statusText.textContent = state === "on" ? "CONECTADO" : state === "off" ? "DESCONECTADO" : "CONECTANDO";
+  const label = state === "on" ? "Conectado" : state === "off" ? "Desconectado" : "Conectando";
   const color = state === "on" ? "var(--ok)" : state === "off" ? "var(--err)" : "var(--warn)";
   brandMark.style.background = color;
   brandMark.style.boxShadow = `0 0 10px ${color}`;
+  brand.title = label;
 }
 
 function vibrate(ms) {
@@ -436,8 +435,10 @@ function registerMasterFader(mount, readout, muteBtn) {
   return entry;
 }
 
-// Sidebar da tela Teclas
-registerMasterFader(quickFaderSlot, volumeReadout, muteBtn);
+// Sidebar da tela Teclas: o fader é filho direto do aside (flex column),
+// mesma estrutura simples do slider nativo original.
+const quickEntry = registerMasterFader(quickVolumeAside, volumeReadout, muteBtn);
+quickVolumeAside.insertBefore(quickEntry.fader.el, volumeReadout);
 
 setInterval(fetchVolume, 4000);
 fetchVolume();
@@ -448,14 +449,22 @@ const appIconCache = new Map(); // process name -> icon_url ("" while pending)
 const appStripState = new Map(); // process name -> { fader, readout, muteBtnEl, dragging, level, muted, sendTimer }
 
 function buildMasterFaderCol() {
-  const icon = h("span", { class: "app-icon", style: "font-size:20px;line-height:26px;text-align:center;" }, "🔊");
+  const icon = h("span", { class: "app-icon" }, "🔊");
   const name = h("span", { class: "fader-name" }, "Geral");
-  const slot = h("div", { class: "fader-slot", style: "flex:1;min-height:0;width:100%;display:flex;" });
   const readout = h("span", { class: "volume-readout" }, "--%");
   const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" }, "🔊");
-  const col = h("div", { class: "fader-col", "data-process": "__master__" }, [icon, name, slot, readout, muteBtnEl]);
-  // registra DEPOIS de montar, para o createFader medir o track corretamente
-  requestAnimationFrame(() => registerMasterFader(slot, readout, muteBtnEl));
+  const footer = h("div", { class: "fader-footer" }, [
+    icon,
+    h("span", { class: "footer-divider" }),
+    muteBtnEl,
+  ]);
+  const col = h("div", { class: "fader-col", "data-process": "__master__" }, [name]);
+  // o fader é filho direto da coluna (flex:1) — sem wrapper aninhado
+  requestAnimationFrame(() => {
+    registerMasterFader(col, readout, muteBtnEl);
+    col.appendChild(readout);
+    col.appendChild(footer);
+  });
   return col;
 }
 
@@ -527,11 +536,17 @@ function buildAppFader(app, state) {
   const icon = h("img", { class: "app-icon", src: appIconCache.get(app.process) || "/static/icon-192.png", alt: "" });
   const name = h("span", { class: "fader-name" }, app.label);
   name.title = app.label;
-  const slot = h("div", { class: "fader-slot", style: "flex:1;min-height:0;width:100%;display:flex;" });
   const readout = h("span", { class: "volume-readout" }, `${app.level}%`);
   const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" }, app.muted ? "🔇" : "🔊");
+  const footer = h("div", { class: "fader-footer" }, [
+    icon,
+    h("span", { class: "footer-divider" }),
+    muteBtnEl,
+  ]);
+  // o fader é filho direto da coluna (flex:1) — sem wrapper aninhado
+  const col = h("div", { class: "fader-col", "data-process": app.process }, [name]);
 
-  const fader = createFader(slot, {
+  const fader = createFader(col, {
     value: app.level,
     muted: app.muted,
     label: `Volume de ${app.label}`,
@@ -555,11 +570,14 @@ function buildAppFader(app, state) {
     sendAppVolume(app.process, { muted: state.muted });
   });
 
+  col.appendChild(readout);
+  col.appendChild(footer);
+
   state.fader = fader;
   state.readout = readout;
   state.muteBtnEl = muteBtnEl;
 
-  return h("div", { class: "fader-col", "data-process": app.process }, [icon, name, slot, readout, muteBtnEl]);
+  return col;
 }
 
 function updateAppFaderUI(process, level, muted) {
@@ -589,6 +607,74 @@ function sendAppVolume(process, payload) {
 setInterval(fetchAppVolumes, 4000);
 fetchAppVolumes();
 
+/* ---------- microfone (painel fixo à direita) ---------- */
+
+const micPanel = document.getElementById("micPanel");
+const micReadout = document.getElementById("micReadout");
+const micMuteBtn = document.getElementById("micMuteBtn");
+const discordMuteBtn = document.getElementById("discordMuteBtn");
+
+let micState = { level: 100, muted: false, dragging: false, sendTimer: null };
+let discordMuted = false; // estado local — o Discord não confirma de volta
+
+const micFader = createFader(micPanel, {
+  value: 100,
+  label: "Volume do microfone",
+  onInput: (v) => {
+    micState.level = v;
+    micReadout.textContent = `${v}%`;
+    micMuteBtn.textContent = v === 0 ? "🔇" : "🔊";
+    clearTimeout(micState.sendTimer);
+    micState.sendTimer = setTimeout(() => sendMicVolume({ level: v }), 80);
+  },
+  onRelease: () => { micState.dragging = false; },
+});
+micPanel.insertBefore(micFader.el, micReadout);
+micFader.el.addEventListener("pointerdown", () => { micState.dragging = true; vibrate(6); }, { capture: true });
+
+function updateMicUI(level, muted) {
+  if (!micState.dragging) micFader.set(level, muted);
+  micReadout.textContent = `${level}%`;
+  micMuteBtn.textContent = muted ? "🔇" : "🔊";
+}
+
+async function fetchMicVolume() {
+  try {
+    const res = await fetch("/api/mic");
+    const data = await res.json();
+    if (!res.ok) return;
+    micState.level = data.level;
+    micState.muted = !!data.muted;
+    updateMicUI(data.level, !!data.muted);
+  } catch (e) { /* endpoint ainda não existe no servidor — silencioso */ }
+}
+
+function sendMicVolume(payload) {
+  fetch("/api/mic", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
+micMuteBtn.addEventListener("click", () => {
+  vibrate(12);
+  const newMuted = !micState.muted;
+  micState.muted = newMuted;
+  updateMicUI(micState.level, newMuted);
+  sendMicVolume({ muted: newMuted });
+});
+
+discordMuteBtn.addEventListener("click", () => {
+  vibrate(15);
+  discordMuted = !discordMuted;
+  discordMuteBtn.classList.toggle("active", discordMuted);
+  fetch("/api/discord/mute", { method: "POST" }).catch(() => {});
+});
+
+setInterval(fetchMicVolume, 4000);
+fetchMicVolume();
+
 /* ---------- now playing (qualquer app de música, tela Áudio) ---------- */
 
 const nowPlayingEl = document.getElementById("nowPlaying");
@@ -600,6 +686,9 @@ const npPlayPause = document.getElementById("npPlayPause");
 const npPrev = document.getElementById("npPrev");
 const npNext = document.getElementById("npNext");
 const npProgressFill = document.getElementById("npProgressFill");
+const npProgressTrack = document.getElementById("npProgressTrack");
+const npProgressKnob = document.getElementById("npProgressKnob");
+let npScrubbing = false;
 
 const DEFAULT_ART = "/static/icon-192.png";
 let lastThumbUrl = DEFAULT_ART;
@@ -623,11 +712,61 @@ function setNowPlayingIdle(msg, detail) {
 }
 
 function renderNpProgress() {
-  if (!npState.duration) { npProgressFill.style.width = "0%"; return; }
+  if (npScrubbing) return; // não briga com o dedo durante o seek
+  if (!npState.duration) { npProgressFill.style.width = "0%"; npProgressKnob.style.left = "0%"; return; }
   let pos = npState.progress;
   if (npState.playing) pos += Date.now() - npState.at; // anda sozinho entre uma consulta e outra
-  npProgressFill.style.width = `${Math.max(0, Math.min(100, (100 * pos) / npState.duration))}%`;
+  const pct = Math.max(0, Math.min(100, (100 * pos) / npState.duration));
+  npProgressFill.style.width = `${pct}%`;
+  npProgressKnob.style.left = `${pct}%`;
 }
+
+/* ---------- seek: arrastar a barrinha do "tocando agora" ---------- */
+
+function npScrubTo(clientX) {
+  const rect = npProgressTrack.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  if (!npState.duration) return null;
+  npProgressFill.style.width = `${ratio * 100}%`;
+  npProgressKnob.style.left = `${ratio * 100}%`;
+  return Math.round(ratio * npState.duration);
+}
+
+npProgressTrack.addEventListener("pointerdown", (e) => {
+  if (!npState.duration) return;
+  npScrubbing = true;
+  try { npProgressTrack.setPointerCapture(e.pointerId); } catch (_) {}
+  npScrubTo(e.clientX);
+  vibrate(8);
+});
+
+npProgressTrack.addEventListener("pointermove", (e) => {
+  if (!npScrubbing) return;
+  npScrubTo(e.clientX);
+});
+
+function npEndScrub(e) {
+  if (!npScrubbing) return;
+  npScrubbing = false;
+  const posMs = npScrubTo(e.clientX);
+  if (posMs == null) return;
+  // atualiza o estado local pra barra não "pular" de volta antes do próximo poll
+  npState.progress = posMs;
+  npState.at = Date.now();
+  vibrate(12);
+  fetch("/api/nowplaying/seek", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ position_ms: posMs, source: npSourceId || "" }),
+  })
+    .then((res) => res.json())
+    .then((data) => { if (data.error) console.warn("Falha no seek:", data.error); })
+    .catch((err) => console.warn("Falha no seek:", err))
+    .finally(() => setTimeout(fetchNowPlaying, 400));
+}
+
+npProgressTrack.addEventListener("pointerup", npEndScrub);
+npProgressTrack.addEventListener("pointercancel", () => { npScrubbing = false; });
 
 async function fetchNowPlaying() {
   try {

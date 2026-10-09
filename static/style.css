@@ -60,16 +60,16 @@ html, body {
 .statusbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin: 12px 12px 6px;
-  padding: 11px 14px;
+  padding: 8px 10px 8px 14px;
   border-radius: var(--radius);
   background: var(--panel);
   border: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.brand { display: flex; align-items: center; gap: 8px; }
+.brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .brand-mark {
   width: 8px;
@@ -85,28 +85,6 @@ html, body {
   font-size: 13px;
   color: var(--text);
 }
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  flex: 1;
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--warn);
-  transition: background 0.25s;
-}
-
-.status-dot.on { background: var(--ok); }
-.status-dot.off { background: var(--err); }
 
 .gear-btn {
   width: 32px;
@@ -125,22 +103,22 @@ html, body {
 }
 .gear-btn:active { transform: scale(0.9); }
 
-/* ---------- top tabs (segmented control) ---------- */
+/* ---------- top tabs (segmented control, inside the header) ---------- */
 
 .top-tabs {
+  flex: 1;
+  min-width: 0;
   display: flex;
   justify-content: center;
-  padding: 2px 12px 10px;
-  flex-shrink: 0;
 }
 
 .tabs-pill {
   position: relative;
   display: flex;
-  width: min(100%, 360px);
-  padding: 4px;
+  width: min(100%, 300px);
+  padding: 3px;
   border-radius: 999px;
-  background: var(--panel);
+  background: var(--panel-soft);
   border: 1px solid var(--border);
 }
 
@@ -166,20 +144,21 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 0;
+  gap: 6px;
+  padding: 7px 0;
   border: none;
   border-radius: 999px;
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.tab-btn .tab-ico { font-size: 15px; line-height: 1; }
+.tab-btn .tab-ico { font-size: 13px; line-height: 1; }
 
 .tab-btn.active { color: var(--gold); }
 .tab-btn:active { transform: scale(0.97); }
@@ -316,7 +295,6 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   padding: 10px 0;
   margin: 4px 10px 10px 0;
@@ -326,33 +304,26 @@ html, body {
   min-height: 0;
 }
 
-.quick-volume .fader-slot {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-}
-
-/* ---------- custom fader (replaces native range inputs) ---------- */
-
-.fader-slot { display: flex; }
+/* ---------- custom fader (replaces native range inputs) ----------
+   O fader é filho direto flex da coluna: sem wrappers aninhados. */
 
 .fader {
+  position: relative;
   touch-action: none;
   cursor: pointer;
   flex: 1;
   min-height: 110px;
   width: 100%;
-  display: flex;
-  padding: 15px 0;
   outline: none;
 }
 
 .fader-track {
-  position: relative;
-  flex: 1;
+  position: absolute;
+  left: 50%;
+  top: 15px;
+  bottom: 15px;
   width: 12px;
-  margin: 0 auto;
+  transform: translateX(-50%);
   border-radius: 999px;
   background: var(--border);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
@@ -390,6 +361,7 @@ html, body {
 }
 
 .mute-btn {
+  position: relative;
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -489,19 +461,47 @@ html, body {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 6px;
+  bottom: 2px;
+  height: 22px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.np-progress-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   height: 3px;
   border-radius: 999px;
   background: var(--border);
-  overflow: hidden;
 }
 
 .np-progress-fill {
-  height: 100%;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 3px;
   width: 0%;
   background: var(--gold);
   border-radius: 999px;
-  transition: width 0.4s linear;
+  pointer-events: none;
+}
+
+.np-progress-knob {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--gold-hi);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
 
 .np-controls { display: flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0; }
@@ -532,8 +532,16 @@ html, body {
   border-color: transparent;
 }
 
+.audio-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+}
+
 .audio-mixer {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   align-items: stretch;
@@ -542,6 +550,74 @@ html, body {
   overflow-y: hidden;
   padding: 2px;
 }
+
+/* ---------- painel do microfone (lado direito, fixo) ---------- */
+
+.mic-panel {
+  width: 92px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 8px 10px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(201, 162, 75, 0.07), rgba(201, 162, 75, 0.02)), var(--panel);
+  border: 1px solid rgba(201, 162, 75, 0.25);
+}
+
+.mic-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mic-title .mic-ico { font-size: 15px; }
+
+.mic-mutes {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.mute-btn.discord-mute {
+  border-color: rgba(88, 101, 242, 0.45);
+  color: #b5bac1;
+}
+
+.mute-btn.discord-mute svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.mute-btn.discord-mute.active {
+  background: rgba(88, 101, 242, 0.25);
+  border-color: #5865f2;
+  color: #fff;
+}
+
+.mute-btn.discord-mute.active::after {
+  content: "";
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  top: 50%;
+  height: 2px;
+  background: #ed4245;
+  border-radius: 2px;
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+/* ---------- refinamento sutil dos blocos ---------- */
 
 .fader-col {
   flex: 1 0 72px;
@@ -552,9 +628,10 @@ html, body {
   align-items: center;
   gap: 7px;
   padding: 12px 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--panel);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)), var(--panel);
   border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .fader-col .app-icon {
@@ -577,6 +654,35 @@ html, body {
 }
 
 .fader-col .fader { min-height: 130px; }
+
+.fader-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 4px;
+  flex-shrink: 0;
+}
+
+.fader-footer .app-icon {
+  margin-bottom: 0;
+  font-size: 17px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+}
+
+.footer-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 22px;
+  background: var(--border);
+  border-radius: 1px;
+  flex-shrink: 0;
+}
 
 .audio-empty {
   margin: auto;
