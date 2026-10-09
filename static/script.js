@@ -1,24 +1,3 @@
-function showVolumeError(msg) {
-  for (const r of MASTER_READOUTS) { r.textContent = "erro"; r.title = msg || ""; }
-  console.warn("Falha ao ajustar volume:", msg);
-}
-
-function sendVolume(level) {
-  clearTimeout(volumeSendTimer);
-  volumeSendTimer = setTimeout(() => {
-    fetch("/api/volume", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ level: parseInt(level, 10) }),
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.error) showVolumeError(data.error || `HTTP ${res.status}`);
-      })
-      .catch((e) => showVolumeError(String(e)));
-  }, 60);
-}
-
 /* ---------- categorias (cor do LED de cada tecla) ---------- */
 
 const TYPE_CATEGORY = {
@@ -63,6 +42,10 @@ function h(tag, attrs = {}, children = []) {
   return node;
 }
 
+function clamp(v, lo = 0, hi = 100) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
 /* ---------- connection state ---------- */
 
 const grid = document.getElementById("grid");
@@ -71,13 +54,11 @@ const statusText = document.getElementById("statusText");
 const brandMark = document.getElementById("brandMark");
 const fsBtn = document.getElementById("fsBtn");
 const installTip = document.getElementById("installTip");
-const volumeSlider = document.getElementById("volumeSlider");
 const volumeReadout = document.getElementById("volumeReadout");
 const muteBtn = document.getElementById("muteBtn");
-const volumeSlider2 = document.getElementById("volumeSlider2");
-const volumeReadout2 = document.getElementById("volumeReadout2");
-const muteBtn2 = document.getElementById("muteBtn2");
+const quickFaderSlot = document.getElementById("quickFader");
 const screens = document.getElementById("screens");
+const screensViewport = document.getElementById("screensViewport");
 const screenTabs = document.getElementById("screenTabs");
 const audioMixer = document.getElementById("audioMixer");
 
@@ -96,6 +77,99 @@ function vibrate(ms) {
   if (navigator.vibrate) navigator.vibrate(ms);
 }
 
+/* ---------- custom fader component ----------
+   Substitui o <input type=range> nativo: visual próprio, e o thumb percorre
+   EXATAMENTE a altura da barra (100% = topo, 0% = base). */
+
+const THUMB_HALF = 14; // metade da altura do thumb (px) — igual ao padding do .fader
+
+function createFader(mount, { value = 50, muted = false, label = "Volume", onInput, onRelease } = {}) {
+  const el = h("div", {
+    class: "fader", role: "slider", tabindex: "0",
+    "aria-label": label, "aria-valuemin": "0", "aria-valuemax": "100",
+  });
+  const track = h("div", { class: "fader-track" });
+  const fill = h("div", { class: "fader-fill" });
+  const thumb = h("div", { class: "fader-thumb" });
+  track.append(fill, thumb);
+  el.append(track);
+  mount.append(el);
+
+  let level = clamp(Math.round(value));
+  let isMuted = !!muted;
+  let dragging = false;
+
+  function render() {
+    fill.style.height = level + "%";
+    // centro do thumb em `level`% da altura da barra: 100% = topo exato, 0% = base exata
+    thumb.style.bottom = `calc(${level}% - ${THUMB_HALF}px)`;
+    el.setAttribute("aria-valuenow", String(level));
+    el.classList.toggle("muted", isMuted);
+  }
+
+  function levelFromClientY(clientY) {
+    const r = track.getBoundingClientRect();
+    if (r.height <= 0) return level;
+    return clamp(Math.round(100 * (1 - (clientY - r.top) / r.height)));
+  }
+
+  function userSet(v) {
+    v = clamp(Math.round(v));
+    if (v === level) return;
+    level = v;
+    render();
+    onInput && onInput(level);
+  }
+
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    dragging = true;
+    try { el.setPointerCapture(e.pointerId); } catch (_) { /* noop */ }
+    vibrate(8);
+    userSet(levelFromClientY(e.clientY));
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (dragging) userSet(levelFromClientY(e.clientY));
+  });
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    onRelease && onRelease(level);
+  };
+  el.addEventListener("pointerup", endDrag);
+  el.addEventListener("pointercancel", endDrag);
+
+  el.addEventListener("keydown", (e) => {
+    let v = null;
+    if (e.key === "ArrowUp" || e.key === "ArrowRight") v = level + 5;
+    else if (e.key === "ArrowDown" || e.key === "ArrowLeft") v = level - 5;
+    else if (e.key === "Home") v = 0;
+    else if (e.key === "End") v = 100;
+    else if (e.key === "PageUp") v = level + 10;
+    else if (e.key === "PageDown") v = level - 10;
+    if (v !== null) {
+      e.preventDefault();
+      userSet(v);
+      onRelease && onRelease(level);
+    }
+  });
+
+  render();
+
+  return {
+    el,
+    get level() { return level; },
+    isDragging() { return dragging; },
+    // ajuste vindo de fora (polling): silencioso, não dispara onInput
+    set(v, m) {
+      level = clamp(Math.round(v));
+      if (typeof m === "boolean") isMuted = m;
+      render();
+    },
+    setMuted(m) { isMuted = !!m; render(); },
+  };
+}
+
 /* ---------- view mode: the deck grid ---------- */
 
 async function loadConfig() {
@@ -103,6 +177,9 @@ async function loadConfig() {
   config = await res.json();
   renderGrid();
 }
+
+// Um toque numa tecla só dispara se o dedo não arrastou (para não conflitar com o swipe de telas).
+let suppressTap = false;
 
 function renderGrid() {
   grid.style.setProperty("--cols", (config.grid && config.grid.columns) || 3);
@@ -116,7 +193,28 @@ function renderGrid() {
       iconNode(btn.icon),
       h("span", { class: "label" }, btn.label || btn.id),
     ]);
-    el.addEventListener("pointerdown", () => onPress(el, btn.id));
+    let downPos = null;
+    el.addEventListener("pointerdown", (e) => {
+      downPos = { x: e.clientX, y: e.clientY };
+      el.classList.add("pressed");
+    });
+    const cancelPress = () => {
+      downPos = null;
+      el.classList.remove("pressed");
+    };
+    el.addEventListener("pointerup", (e) => {
+      el.classList.remove("pressed");
+      if (downPos && !suppressTap) {
+        const moved = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+        if (moved < 12) onPress(el, btn.id);
+      }
+      downPos = null;
+    });
+    el.addEventListener("pointercancel", cancelPress);
+    el.addEventListener("pointerleave", () => {
+      // se o dedo escorregou para fora sem soltar, não é um toque
+      if (downPos) cancelPress();
+    });
     grid.appendChild(el);
   }
 }
@@ -155,42 +253,129 @@ function connect() {
   };
 }
 
-/* ---------- screen navigation (Apps / Áudio) ---------- */
+/* ---------- screen navigation (Teclas / Áudio): tabs no topo + swipe ---------- */
+
+const tabBtns = [...screenTabs.querySelectorAll(".tab-btn")];
+let currentScreen = "apps";
+
+function goToScreen(name, keepInlineTransform = false) {
+  currentScreen = name;
+  const onAudio = name === "audio";
+  screens.classList.remove("no-anim");
+  if (!keepInlineTransform) screens.style.transform = "";
+  screens.classList.toggle("on-audio", onAudio);
+  screenTabs.classList.toggle("on-audio", onAudio);
+  for (const t of tabBtns) t.classList.toggle("active", t.dataset.screen === name);
+  if (onAudio) { fetchNowPlaying(); fetchVolume(); fetchAppVolumes(); }
+}
 
 screenTabs.addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
   if (!btn) return;
   vibrate(10);
-  const target = btn.dataset.screen;
-  screens.classList.toggle("on-audio", target === "audio");
-  for (const t of screenTabs.querySelectorAll(".tab-btn")) {
-    t.classList.toggle("active", t.dataset.screen === target);
-  }
-  if (target === "audio") { fetchNowPlaying(); fetchVolume(); fetchAppVolumes(); }
+  goToScreen(btn.dataset.screen);
 });
 
-/* ---------- volume strip (soundbar) ---------- */
+// Swipe horizontal no viewport troca de tela. Não inicia em cima de
+// controles interativos (faders, botões, mixer com rolagem própria).
+let swipe = null;
 
-let isDraggingVolume = false;
+function swipeShouldIgnore(target) {
+  // Teclas do grid: swipe permitido — se virar swipe, o toque é suprimido.
+  if (target.closest(".key")) return false;
+  return !!target.closest(".fader, button, input, select, .audio-mixer, .np-controls");
+}
+
+screensViewport.addEventListener("pointerdown", (e) => {
+  if (swipeShouldIgnore(e.target)) return;
+  swipe = { x0: e.clientX, y0: e.clientY, dx: 0, active: false };
+});
+
+screensViewport.addEventListener("pointermove", (e) => {
+  if (!swipe || swipe.active) {
+    if (swipe && swipe.active) {
+      swipe.dx = e.clientX - swipe.x0;
+      const base = currentScreen === "audio" ? -screensViewport.clientWidth : 0;
+      screens.style.transform = `translateX(${base + swipe.dx}px)`;
+    }
+    return;
+  }
+  const dx = e.clientX - swipe.x0;
+  const dy = e.clientY - swipe.y0;
+  if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+    swipe.active = true;
+    suppressTap = true; // um swipe que começou numa tecla não pode dispará-la
+    screens.classList.add("no-anim");
+    swipe.dx = dx;
+  } else if (Math.abs(dy) > 28 || Math.abs(dx) > 80) {
+    swipe = null; // gesto vertical (ou nada): não é swipe de tela
+  }
+});
+
+function endSwipe() {
+  if (!swipe) return;
+  const wasActive = swipe.active;
+  const dx = swipe.dx;
+  swipe = null;
+  if (!wasActive) return;
+  const w = screensViewport.clientWidth;
+  let target = currentScreen;
+  if (dx < -w * 0.22 && currentScreen === "apps") target = "audio";
+  else if (dx > w * 0.22 && currentScreen === "audio") target = "apps";
+  // Aplica a classe destino ANTES de soltar o transform inline (que ainda
+  // sobrepõe a classe): assim a animação parte da posição arrastada.
+  screens.classList.remove("no-anim");
+  goToScreen(target, true);
+  screens.style.transform = "";
+  setTimeout(() => { suppressTap = false; }, 50);
+}
+
+screensViewport.addEventListener("pointerup", endSwipe);
+screensViewport.addEventListener("pointercancel", () => {
+  swipe = null;
+  screens.classList.remove("no-anim");
+  screens.style.transform = "";
+  setTimeout(() => { suppressTap = false; }, 50);
+});
+
+/* ---------- master volume (faders sincronizados: sidebar + mixer) ---------- */
+
 let volumeSendTimer = null;
 let lastKnownLevel = 50;
 let lastKnownMuted = false;
 
-// Two physical fader pairs show the same master volume — the quick sidebar
-// on the Apps screen, and the full one on the Áudio screen — kept in sync.
-const MASTER_SLIDERS = [volumeSlider, volumeSlider2];
-const MASTER_READOUTS = [volumeReadout, volumeReadout2];
-const MASTER_MUTE_BTNS = [muteBtn, muteBtn2];
+const masterFaders = []; // { fader, readout, muteBtn }
+
+function showVolumeError(msg) {
+  for (const m of masterFaders) { m.readout.textContent = "erro"; m.readout.title = msg || ""; }
+  console.warn("Falha ao ajustar volume:", msg);
+}
+
+function paintMaster(level, muted) {
+  for (const m of masterFaders) {
+    m.readout.textContent = muted ? "MUDO" : `${level}%`;
+    m.readout.title = "";
+    m.muteBtn.textContent = muted || level === 0 ? "🔇" : level < 50 ? "🔉" : "🔊";
+    m.muteBtn.classList.toggle("muted", !!muted);
+  }
+}
 
 function updateVolumeUI(level, muted) {
   lastKnownLevel = level;
   lastKnownMuted = muted;
-  for (const s of MASTER_SLIDERS) { s.value = level; s.classList.toggle("muted", !!muted); }
-  for (const r of MASTER_READOUTS) r.textContent = muted ? "MUDO" : `${level}%`;
-  for (const b of MASTER_MUTE_BTNS) {
-    b.textContent = muted || level === 0 ? "🔇" : level < 50 ? "🔉" : "🔊";
-    b.classList.toggle("muted", !!muted);
+  for (const m of masterFaders) m.fader.set(level, muted);
+  paintMaster(level, muted);
+}
+
+// Chamada pelo fader que o usuário está arrastando.
+function onMasterInput(src, level) {
+  lastKnownLevel = level;
+  lastKnownMuted = false;
+  for (const m of masterFaders) {
+    if (m.fader !== src) m.fader.set(level, false);
   }
+  paintMaster(level, false);
+  sendVolume(level);
 }
 
 async function fetchVolume() {
@@ -198,14 +383,13 @@ async function fetchVolume() {
     const res = await fetch("/api/volume");
     const data = await res.json();
     if (!res.ok) {
-      for (const r of MASTER_READOUTS) { r.textContent = "erro"; r.title = data.error || "falha desconhecida"; }
-      console.warn("Volume geral indisponível:", data.error);
+      showVolumeError(data.error || "falha desconhecida");
       return;
     }
-    for (const r of MASTER_READOUTS) r.title = "";
-    if (!isDraggingVolume) updateVolumeUI(data.level, data.muted);
+    const dragging = masterFaders.some((m) => m.fader.isDragging());
+    if (!dragging) updateVolumeUI(data.level, data.muted);
   } catch (e) {
-    for (const r of MASTER_READOUTS) r.textContent = "offline";
+    for (const m of masterFaders) m.readout.textContent = "offline";
     console.warn("Não foi possível falar com o servidor:", e);
   }
 }
@@ -218,24 +402,23 @@ function sendVolume(level) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ level: parseInt(level, 10) }),
     })
-      .then((res) => res.json())
-      .then((data) => { if (data.error) console.warn("Falha ao ajustar volume:", data.error); })
-      .catch((e) => console.warn("Falha ao ajustar volume:", e));
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) showVolumeError(data.error || `HTTP ${res.status}`);
+      })
+      .catch((e) => showVolumeError(String(e)));
   }, 60);
 }
 
-for (const s of MASTER_SLIDERS) {
-  s.addEventListener("pointerdown", () => { isDraggingVolume = true; vibrate(8); });
-  s.addEventListener("input", (e) => {
-    updateVolumeUI(parseInt(e.target.value, 10), false);
-    sendVolume(e.target.value);
+function registerMasterFader(mount, readout, muteBtn) {
+  const fader = createFader(mount, {
+    value: lastKnownLevel,
+    label: "Volume geral",
+    onInput: (v) => onMasterInput(fader, v),
   });
-  s.addEventListener("pointerup", () => { isDraggingVolume = false; });
-  s.addEventListener("change", () => { isDraggingVolume = false; });
-}
-
-for (const b of MASTER_MUTE_BTNS) {
-  b.addEventListener("click", () => {
+  const entry = { fader, readout, muteBtn };
+  masterFaders.push(entry);
+  muteBtn.addEventListener("click", () => {
     vibrate(15);
     const newMuted = !lastKnownMuted;
     updateVolumeUI(lastKnownLevel, newMuted);
@@ -244,19 +427,39 @@ for (const b of MASTER_MUTE_BTNS) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ muted: newMuted }),
     })
-      .then((res) => res.json())
-      .then((data) => { if (data.error) console.warn("Falha ao mutar:", data.error); })
-      .catch((e) => console.warn("Falha ao mutar:", e));
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) showVolumeError(data.error || `HTTP ${res.status}`);
+      })
+      .catch((e) => showVolumeError(String(e)));
   });
+  return entry;
 }
+
+// Sidebar da tela Teclas
+registerMasterFader(quickFaderSlot, volumeReadout, muteBtn);
 
 setInterval(fetchVolume, 4000);
 fetchVolume();
 
-/* ---------- per-app volume mixer (vertical faders, Áudio screen) ---------- */
+/* ---------- per-app volume mixer (faders verticais, tela Áudio) ---------- */
 
 const appIconCache = new Map(); // process name -> icon_url ("" while pending)
-const appStripState = new Map(); // process name -> { dragging, level, muted, sendTimer }
+const appStripState = new Map(); // process name -> { fader, readout, muteBtnEl, dragging, level, muted, sendTimer }
+
+function buildMasterFaderCol() {
+  const icon = h("span", { class: "app-icon", style: "font-size:20px;line-height:26px;text-align:center;" }, "🔊");
+  const name = h("span", { class: "fader-name" }, "Geral");
+  const slot = h("div", { class: "fader-slot", style: "flex:1;min-height:0;width:100%;display:flex;" });
+  const readout = h("span", { class: "volume-readout" }, "--%");
+  const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" }, "🔊");
+  const col = h("div", { class: "fader-col", "data-process": "__master__" }, [icon, name, slot, readout, muteBtnEl]);
+  // registra DEPOIS de montar, para o createFader medir o track corretamente
+  requestAnimationFrame(() => registerMasterFader(slot, readout, muteBtnEl));
+  return col;
+}
+
+audioMixer.appendChild(buildMasterFaderCol());
 
 async function fetchAppVolumes() {
   try {
@@ -278,7 +481,7 @@ function renderAppVolumes(apps) {
     seen.add(app.process);
     let state = appStripState.get(app.process);
     if (!state) {
-      state = { dragging: false, level: app.level, muted: app.muted, sendTimer: null };
+      state = { fader: null, readout: null, muteBtnEl: null, dragging: false, level: app.level, muted: app.muted, sendTimer: null };
       appStripState.set(app.process, state);
       audioMixer.appendChild(buildAppFader(app, state));
       fetchAppIcon(app);
@@ -317,51 +520,54 @@ async function fetchAppIcon(app) {
       const el = audioMixer.querySelector(`[data-process="${cssEscape(app.process)}"] .app-icon`);
       if (el) el.src = data.icon_url;
     }
-  } catch (e) { /* fall back to the generic label, no icon */ }
+  } catch (e) { /* fall back to the generic icon, no problem */ }
 }
 
 function buildAppFader(app, state) {
   const icon = h("img", { class: "app-icon", src: appIconCache.get(app.process) || "/static/icon-192.png", alt: "" });
-  const slider = h("input", {
-    type: "range", min: "0", max: "100", value: String(app.level), class: "volume-slider vertical",
-    "aria-label": app.label, orient: "vertical",
-  });
+  const name = h("span", { class: "fader-name" }, app.label);
+  name.title = app.label;
+  const slot = h("div", { class: "fader-slot", style: "flex:1;min-height:0;width:100%;display:flex;" });
   const readout = h("span", { class: "volume-readout" }, `${app.level}%`);
-  const label = h("span", { class: "fader-label" }, app.label);
   const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" }, app.muted ? "🔇" : "🔊");
 
-  slider.addEventListener("pointerdown", () => { state.dragging = true; vibrate(6); });
-  slider.addEventListener("input", (e) => {
-    const level = parseInt(e.target.value, 10);
-    state.level = level;
-    readout.textContent = `${level}%`;
-    clearTimeout(state.sendTimer);
-    state.sendTimer = setTimeout(() => sendAppVolume(app.process, { level }), 60);
+  const fader = createFader(slot, {
+    value: app.level,
+    muted: app.muted,
+    label: `Volume de ${app.label}`,
+    onInput: (v) => {
+      state.level = v;
+      readout.textContent = `${v}%`;
+      muteBtnEl.textContent = v === 0 ? "🔇" : "🔊";
+      clearTimeout(state.sendTimer);
+      state.sendTimer = setTimeout(() => sendAppVolume(app.process, { level: v }), 60);
+    },
+    onRelease: () => { state.dragging = false; },
   });
-  slider.addEventListener("pointerup", () => { state.dragging = false; });
-  slider.addEventListener("change", () => { state.dragging = false; });
+  // marca dragging no pointerdown do fader (o createFader não expõe o início)
+  fader.el.addEventListener("pointerdown", () => { state.dragging = true; vibrate(6); }, { capture: true });
 
   muteBtnEl.addEventListener("click", () => {
     vibrate(12);
     state.muted = !state.muted;
     muteBtnEl.textContent = state.muted ? "🔇" : "🔊";
-    slider.classList.toggle("muted", state.muted);
+    fader.setMuted(state.muted);
     sendAppVolume(app.process, { muted: state.muted });
   });
 
-  return h("div", { class: "fader-col", "data-process": app.process }, [icon, slider, readout, muteBtnEl, label]);
+  state.fader = fader;
+  state.readout = readout;
+  state.muteBtnEl = muteBtnEl;
+
+  return h("div", { class: "fader-col", "data-process": app.process }, [icon, name, slot, readout, muteBtnEl]);
 }
 
 function updateAppFaderUI(process, level, muted) {
-  const el = audioMixer.querySelector(`[data-process="${cssEscape(process)}"]`);
-  if (!el) return;
-  const slider = el.querySelector(".volume-slider");
-  const readout = el.querySelector(".volume-readout");
-  const muteBtnEl = el.querySelector(".mute-btn");
-  slider.value = level;
-  slider.classList.toggle("muted", !!muted);
-  readout.textContent = `${level}%`;
-  muteBtnEl.textContent = muted ? "🔇" : "🔊";
+  const state = appStripState.get(process);
+  if (!state || !state.fader) return;
+  state.fader.set(level, muted);
+  state.readout.textContent = `${level}%`;
+  state.muteBtnEl.textContent = muted ? "🔇" : "🔊";
 }
 
 function sendAppVolume(process, payload) {
@@ -374,8 +580,8 @@ function sendAppVolume(process, payload) {
       if (res.ok) return;
       const data = await res.json().catch(() => ({}));
       console.warn(`Volume de ${process} falhou:`, data.error || `HTTP ${res.status}`);
-      const el = audioMixer.querySelector(`[data-process="${cssEscape(process)}"] .volume-readout`);
-      if (el) { el.textContent = "erro"; el.title = data.error || ""; }
+      const state = appStripState.get(process);
+      if (state && state.readout) { state.readout.textContent = "erro"; state.readout.title = data.error || ""; }
     })
     .catch((e) => console.warn(`Volume de ${process} falhou:`, e));
 }
@@ -383,7 +589,7 @@ function sendAppVolume(process, payload) {
 setInterval(fetchAppVolumes, 4000);
 fetchAppVolumes();
 
-/* ---------- now playing (qualquer app de música, Áudio screen) ---------- */
+/* ---------- now playing (qualquer app de música, tela Áudio) ---------- */
 
 const nowPlayingEl = document.getElementById("nowPlaying");
 const npArt = document.getElementById("npArt");
@@ -486,7 +692,6 @@ setInterval(() => {
 setInterval(renderNpProgress, 500);
 
 /* ---------- wire up ---------- */
-
 
 fsBtn.addEventListener("click", () => {
   if (!document.fullscreenElement) {
