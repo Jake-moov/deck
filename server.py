@@ -32,7 +32,7 @@ import keyboard
 
 
 # Versão do programa. É a única fonte da verdade: o make_update.py lê esta linha ao gerar o pacote.
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 # Versão embutida no .exe (não muda quando um pacote de atualização é carregado por cima).
 _BUNDLED_VERSION = globals().get("_BUNDLED_VERSION") or APP_VERSION
 
@@ -99,8 +99,13 @@ def _documents_dir() -> Path:
     """Pasta Documentos real (pode estar redirecionada para o OneDrive)."""
     try:
         import ctypes
+        from ctypes import wintypes
+        shell32 = ctypes.WinDLL("shell32")
+        fn = shell32.SHGetFolderPathW
+        fn.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR]
+        fn.restype = ctypes.c_long  # HRESULT
         buf = ctypes.create_unicode_buffer(260)
-        if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf) == 0 and buf.value:  # CSIDL_PERSONAL
+        if fn(None, 5, None, 0, buf) == 0 and buf.value:  # CSIDL_PERSONAL
             return Path(buf.value)
     except Exception:
         pass
@@ -457,8 +462,7 @@ def run_action(btn: dict, cfg: dict) -> None:
     elif action_type == "mic_mute":
         # Toggles the actual Windows default microphone — unlike a hotkey,
         # this doesn't depend on any app having that shortcut configured.
-        vol = _mic_interface()
-        vol.SetMute(0 if vol.GetMute() else 1, None)
+        toggle_mic_mute()
 
     else:
         raise ValueError(f"Unknown action type: {action_type}")
@@ -739,19 +743,63 @@ def installed_apps_endpoint(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ---------- COM (pycaw/comtypes) numa thread só ----------
+#
+# Antes, cada requisição chamava comtypes.CoInitialize() na thread do pool do FastAPI. Essas threads
+# são descartadas quando ficam ociosas, sem CoUninitialize, e ponteiros COM criados nelas podiam ser
+# liberados depois por OUTRA thread (ex.: ao descartar uma exceção) — uso inseguro de COM via ctypes,
+# que derruba o processo com access violation (c0000005) dentro do _ctypes.pyd, sem exceção Python.
+# Agora TODO acesso a COM roda numa única thread, inicializada uma vez e que vive até o fim do
+# processo; os ponteiros nascem e morrem nela, e só dados simples (números, textos) saem de lá.
+
+from concurrent.futures import BrokenExecutor, ThreadPoolExecutor
+
+_com_pool = None
+_com_lock = threading.Lock()
+
+
+class ComError(RuntimeError):
+    """Erro vindo da thread de COM, já sem traceback (o traceback seguraria ponteiros COM)."""
+
+
+def _com_thread_init() -> None:
+    import comtypes
+    comtypes.CoInitialize()  # uma única vez; esta thread não termina enquanto o Deck estiver aberto
+
+
+def _com_run(fn, *args, **kwargs):
+    """Executa fn na thread dedicada de COM e devolve o resultado (que deve ser só dado simples)."""
+    global _com_pool
+    with _com_lock:
+        if _com_pool is None:
+            _com_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="com", initializer=_com_thread_init)
+        pool = _com_pool
+
+    def _job():
+        err = None
+        try:
+            return fn(*args, **kwargs)
+        except BaseException as e:  # noqa: BLE001 — convertido em ComError logo abaixo
+            err = f"{type(e).__name__}: {e}"
+        # Fora do except: o traceback (e os ponteiros COM dos frames) é liberado AQUI, na thread de COM.
+        raise ComError(err)
+
+    try:
+        return pool.submit(_job).result(timeout=20)
+    except BrokenExecutor as e:
+        with _com_lock:
+            _com_pool = None  # a próxima chamada recria a thread
+        raise ComError(f"thread de COM indisponível ({type(e).__name__})") from None
+
+
 def _endpoint_volume(flow: str):
     """IAudioEndpointVolume do dispositivo padrão ('render' = alto-falante,
     'capture' = microfone). Usa o enumerador direto: funciona em qualquer versão
-    do pycaw (as novas mudaram o retorno de GetSpeakers(), que quebrava aqui)."""
-    import comtypes
+    do pycaw (as novas mudaram o retorno de GetSpeakers(), que quebrava aqui).
+    SÓ pode ser chamado de dentro da thread de COM (via _com_run)."""
     from ctypes import cast, POINTER
     from comtypes import CLSCTX_ALL
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, EDataFlow, ERole
-
-    try:
-        comtypes.CoInitialize()
-    except OSError:
-        pass  # já inicializado nesta thread
 
     data_flow = EDataFlow.eRender.value if flow == "render" else EDataFlow.eCapture.value
     enumerator = AudioUtilities.GetDeviceEnumerator()
@@ -760,114 +808,107 @@ def _endpoint_volume(flow: str):
     return cast(interface, POINTER(IAudioEndpointVolume))
 
 
-def _volume_interface():
-    return _endpoint_volume("render")
-
-
 def get_system_volume() -> dict:
-    vol = _volume_interface()
-    return {"level": round(vol.GetMasterVolumeLevelScalar() * 100), "muted": bool(vol.GetMute())}
+    def job():
+        vol = _endpoint_volume("render")
+        return {"level": round(vol.GetMasterVolumeLevelScalar() * 100), "muted": bool(vol.GetMute())}
+    return _com_run(job)
 
 
 def set_system_volume(level: int) -> None:
-    vol = _volume_interface()
-    vol.SetMasterVolumeLevelScalar(max(0, min(100, level)) / 100, None)
+    def job():
+        _endpoint_volume("render").SetMasterVolumeLevelScalar(max(0, min(100, level)) / 100, None)
+    _com_run(job)
 
 
 def set_system_mute(muted: bool) -> None:
-    vol = _volume_interface()
-    vol.SetMute(1 if muted else 0, None)
-
-
-def _mic_interface():
-    return _endpoint_volume("capture")
+    def job():
+        _endpoint_volume("render").SetMute(1 if muted else 0, None)
+    _com_run(job)
 
 
 def get_mic_state() -> dict:
-    vol = _mic_interface()
-    return {"level": round(vol.GetMasterVolumeLevelScalar() * 100), "muted": bool(vol.GetMute())}
+    def job():
+        vol = _endpoint_volume("capture")
+        return {"level": round(vol.GetMasterVolumeLevelScalar() * 100), "muted": bool(vol.GetMute())}
+    return _com_run(job)
 
 
-def _init_com():
-    import comtypes
-    try:
-        comtypes.CoInitialize()
-    except OSError:
-        pass
+def toggle_mic_mute() -> None:
+    def job():
+        vol = _endpoint_volume("capture")
+        vol.SetMute(0 if vol.GetMute() else 1, None)
+    _com_run(job)
 
 
 def get_app_sessions() -> list:
     """One entry per distinct process that's *actually* producing audio right
-    now (Spotify playing, a game with sound, a browser tab that's playing
-    something) — same idea as the Windows volume mixer. Windows creates an
-    audio session for a process the moment it touches anything audio-related,
-    even with nothing playing (Explorer's idle system-sound session, a
-    browser tab that merely loaded audio APIs, etc.) — that's what was
-    cluttering the list with folders and silent apps, so sessions that aren't
-    in the Active state are skipped, matching what the real Windows Volume
-    Mixer shows. Sessions with no process (system sounds with none playing)
-    are skipped too. Multiple sessions from the same process are merged into
-    one entry and controlled together."""
-    _init_com()
-    from pycaw.pycaw import AudioUtilities
-    try:
-        from pycaw.pycaw import AudioSessionState
-        active_state = AudioSessionState.Active
-    except ImportError:
-        active_state = 1  # AudioSessionStateActive's raw value, if the enum isn't exposed by this pycaw version
+    now (not merely every process that has ever opened an audio session).
+    Sessions that aren't in the Active state are skipped, matching what the real
+    Windows Volume Mixer shows. Sessions with no process (system sounds with none
+    playing) are skipped too. Multiple sessions from the same process are merged
+    into one entry and controlled together."""
+    def job():
+        from pycaw.pycaw import AudioUtilities
+        try:
+            from pycaw.pycaw import AudioSessionState
+            active_state = AudioSessionState.Active
+        except ImportError:
+            active_state = 1  # AudioSessionStateActive's raw value, if the enum isn't exposed by this pycaw version
 
-    groups = {}
-    for session in AudioUtilities.GetAllSessions():
-        proc = session.Process
-        if proc is None:
-            continue
-        try:
-            if session.State != active_state:
+        groups = {}
+        for session in AudioUtilities.GetAllSessions():
+            proc = session.Process
+            if proc is None:
                 continue
-        except Exception:
-            pass  # if the state can't be read, don't let that hide the app
-        try:
-            pname = proc.name()
-        except Exception:
-            continue
-        if pname in groups:
-            continue
-        vol = session.SimpleAudioVolume
-        try:
-            exe_path = proc.exe()
-        except Exception:
-            exe_path = None
-        groups[pname] = {
-            "process": pname,
-            "label": pname.rsplit(".", 1)[0].replace("_", " ").capitalize(),
-            "level": round(vol.GetMasterVolume() * 100),
-            "muted": bool(vol.GetMute()),
-            "exe_path": exe_path,
-        }
-    return list(groups.values())
+            try:
+                if session.State != active_state:
+                    continue
+            except Exception:
+                pass  # if the state can't be read, don't let that hide the app
+            try:
+                pname = proc.name()
+            except Exception:
+                continue
+            if pname in groups:
+                continue
+            vol = session.SimpleAudioVolume
+            try:
+                exe_path = proc.exe()
+            except Exception:
+                exe_path = None
+            groups[pname] = {
+                "process": pname,
+                "label": pname.rsplit(".", 1)[0].replace("_", " ").capitalize(),
+                "level": round(vol.GetMasterVolume() * 100),
+                "muted": bool(vol.GetMute()),
+                "exe_path": exe_path,
+            }
+        return list(groups.values())
+    return _com_run(job)
 
 
 def set_app_session_volume(process_name: str, level=None, muted=None) -> bool:
-    _init_com()
-    from pycaw.pycaw import AudioUtilities
-
-    found = False
-    for session in AudioUtilities.GetAllSessions():
-        proc = session.Process
-        if proc is None:
-            continue
-        try:
-            if proc.name().lower() != process_name.lower():
+    def job():
+        from pycaw.pycaw import AudioUtilities
+        found = False
+        for session in AudioUtilities.GetAllSessions():
+            proc = session.Process
+            if proc is None:
                 continue
-        except Exception:
-            continue
-        found = True
-        vol = session.SimpleAudioVolume
-        if level is not None:
-            vol.SetMasterVolume(max(0, min(100, level)) / 100, None)
-        if muted is not None:
-            vol.SetMute(1 if muted else 0, None)
-    return found
+            try:
+                if proc.name().lower() != process_name.lower():
+                    continue
+            except Exception:
+                continue
+            found = True
+            vol = session.SimpleAudioVolume
+            if level is not None:
+                vol.SetMasterVolume(max(0, min(100, level)) / 100, None)
+            if muted is not None:
+                vol.SetMute(1 if muted else 0, None)
+        return found
+    return _com_run(job)
 
 
 # ---------- Central de Mídia do Windows (SMTC) ----------
@@ -1147,17 +1188,14 @@ def api_volume_debug(request: Request):
         report["comtypes"] = md.version("comtypes")
     except Exception as e:
         report["versions_error"] = repr(e)
-    try:
-        vol = _volume_interface()
+
+    def master():
+        vol = _endpoint_volume("render")
         before = round(vol.GetMasterVolumeLevelScalar() * 100)
-        report["master_before"] = before
         vol.SetMasterVolumeLevelScalar(before / 100, None)
-        report["master_after_set_same"] = round(vol.GetMasterVolumeLevelScalar() * 100)
-        report["master_ok"] = True
-    except Exception:
-        report["master_error"] = traceback.format_exc()
-    try:
-        _init_com()
+        return {"master_before": before, "master_after_set_same": round(vol.GetMasterVolumeLevelScalar() * 100), "master_ok": True}
+
+    def sessions():
         from pycaw.pycaw import AudioUtilities
         rows = []
         for sess in AudioUtilities.GetAllSessions():
@@ -1179,7 +1217,14 @@ def api_volume_debug(request: Request):
             except Exception as e:
                 row["set_error"] = repr(e)
             rows.append(row)
-        report["sessions"] = rows
+        return rows
+
+    try:
+        report.update(_com_run(master))
+    except Exception:
+        report["master_error"] = traceback.format_exc()
+    try:
+        report["sessions"] = _com_run(sessions)
     except Exception:
         report["sessions_error"] = traceback.format_exc()
     return report

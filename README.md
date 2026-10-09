@@ -62,3 +62,12 @@ exatamente `deck-update.zip`.
   do Windows (via pywebview) e devolve toda a memória ao fechar. Se o WebView2 faltar, cai no Edge em modo app.
 - O pareamento usa um PIN de 6 dígitos (5 erros bloqueiam o aparelho por 1 minuto). Acessos de `127.0.0.1`
   (o próprio PC) nunca precisam de PIN. O painel (`/panel`) só responde no PC.
+
+### Diagnóstico de crash
+
+O `deck_error.log` (em `%APPDATA%\Deck`) registra quando o Deck abre e fecha. Um crash **nativo** (segfault /
+`APPCRASH c0000005`) não é exceção Python, mas o `faulthandler` fica sempre ligado e, se acontecer, grava ali o
+stack de todas as threads logo após a linha `Windows fatal exception: access violation`. Na abertura seguinte o
+Deck registra `ATENÇÃO: a execução anterior do Deck terminou de forma anormal`.
+Para conferir que isso funciona no seu PC: `Deck.exe --crash-test` (derruba o Deck de propósito e deve deixar o stack no log).
+Todo acesso a COM (volume, microfone, volume por app) roda numa única thread dedicada (`_com_run` no `server.py`).

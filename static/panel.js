@@ -164,7 +164,6 @@ const S = {
 };
 
 const selected = () => S.config.buttons.find((b) => b.id === S.selId) || null;
-const isNarrow = () => window.matchMedia("(max-width: 1060px)").matches;
 
 function captionOf(btn) {
   const meta = typeMeta(btn.type);
@@ -194,8 +193,30 @@ function iconEl(icon) {
 
 /* ---------- navegação ---------- */
 
+const PAGE_TITLES = { buttons: "Botões", phone: "Celular", system: "Sistema" };
+
+function openNav() {
+  $("#sidebar").classList.add("open");
+  $("#navScrim").classList.add("open");
+  $("#sidebar").setAttribute("aria-hidden", "false");
+  $("#burger").setAttribute("aria-expanded", "true");
+}
+function closeNav() {
+  $("#sidebar").classList.remove("open");
+  $("#navScrim").classList.remove("open");
+  $("#sidebar").setAttribute("aria-hidden", "true");
+  $("#burger").setAttribute("aria-expanded", "false");
+}
+const navIsOpen = () => $("#sidebar").classList.contains("open");
+$("#burger").addEventListener("click", () => (navIsOpen() ? closeNav() : openNav()));
+$("#navClose").addEventListener("click", closeNav);
+$("#navScrim").addEventListener("click", closeNav);
+
 function go(page) {
   S.page = page;
+  $("#crumb").textContent = PAGE_TITLES[page] || "";
+  closeNav();
+  if (page !== "buttons") closeDetails();
   try { localStorage.setItem("deck.page", page); } catch (e) { /* sem storage */ }
   $$("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === `page-${page}`));
@@ -212,7 +233,6 @@ $("#nav").addEventListener("click", (e) => {
 async function loadConfig() {
   const cfg = await api("/api/config");
   S.config = { grid: cfg.grid && cfg.grid.columns ? cfg.grid : { columns: 4 }, buttons: cfg.buttons || [] };
-  if (!S.selId && S.config.buttons.length && !isNarrow()) S.selId = S.config.buttons[0].id;
   syncColumns();
   renderCanvas();
   renderInspector();
@@ -222,11 +242,11 @@ function syncColumns() {
   const c = S.config.grid.columns || 4;
   $("#colsOut").textContent = c;
   $("#colsDown").disabled = c <= 2;
-  $("#colsUp").disabled = c >= 5;
+  $("#colsUp").disabled = c >= 10;
 }
 
 function setColumns(n) {
-  S.config.grid.columns = Math.max(2, Math.min(5, n));
+  S.config.grid.columns = Math.max(2, Math.min(10, n));
   syncColumns();
   renderCanvas();
   scheduleSave();
@@ -292,22 +312,28 @@ function touch() {
 function select(id) {
   S.selId = id;
   S.iconTab = null;
+  $(".editor").classList.toggle("drawer-open", !!id);
   renderCanvas();
   renderInspector();
+  if (id) scrollKeyIntoView(id);
+}
+
+/** Fecha a gaveta de detalhes (nenhum botão selecionado = editor em largura total). */
+function closeDetails() {
+  if (S.selId) select(null);
+}
+
+function scrollKeyIntoView(id) {
+  // a grade encolhe quando a gaveta abre; garante que o botão selecionado continue à vista
+  setTimeout(() => { const k = $(`#canvas .key[data-id="${id}"]`); if (k) k.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }, 240);
 }
 
 function addButton() {
   const btn = { id: genId(), label: "Novo botão", icon: "preset:star", type: "start_app", value: "" };
   S.config.buttons.push(btn);
-  S.selId = btn.id;
-  S.iconTab = null;
-  renderCanvas();
-  renderInspector();
+  select(btn.id);
   scheduleSave();
-  const c = $("#canvas");
-  c.scrollTo({ top: c.scrollHeight, behavior: "smooth" });
-  const input = $(".name-input");
-  if (input) { input.focus(); input.select(); }
+  setTimeout(() => { const input = $(".name-input"); if (input) { input.focus(); input.select(); } }, 60);
 }
 
 function duplicateSelected() {
@@ -328,8 +354,8 @@ function removeSelected() {
   const i = S.config.buttons.indexOf(btn);
   S.config.buttons.splice(i, 1);
   S.lastRemoved = { btn, index: i };
-  const next = S.config.buttons[i] || S.config.buttons[i - 1] || null;
-  S.selId = next ? next.id : null;
+  S.selId = null;
+  $(".editor").classList.remove("drawer-open");
   renderCanvas();
   renderInspector();
   scheduleSave();
@@ -342,18 +368,6 @@ function undoRemove() {
   S.lastRemoved = null;
   S.config.buttons.splice(Math.min(r.index, S.config.buttons.length), 0, r.btn);
   select(r.btn.id);
-  scheduleSave();
-}
-
-function moveSelected(dir) {
-  const btn = selected();
-  if (!btn) return;
-  const i = S.config.buttons.indexOf(btn), j = i + dir;
-  if (j < 0 || j >= S.config.buttons.length) return;
-  S.config.buttons.splice(i, 1);
-  S.config.buttons.splice(j, 0, btn);
-  renderCanvas();
-  renderInspector();
   scheduleSave();
 }
 
@@ -378,7 +392,8 @@ function renderCanvas() {
   const el = $("#canvas");
   const keep = el.scrollTop;
   el.innerHTML = "";
-  const deck = h("div", { class: "deck", style: `--cols:${S.config.grid.columns || 4}` });
+  const cols = S.config.grid.columns || 4;
+  const deck = h("div", { class: "deck" + (cols >= 9 ? " tiny" : cols >= 7 ? " dense" : ""), style: `--cols:${cols}` });
 
   S.config.buttons.forEach((btn) => {
     const tile = h("div", {
@@ -414,23 +429,7 @@ function renderCanvas() {
     deck.appendChild(tile);
   });
 
-  const add = h("div", { class: "key add", tabindex: "0", role: "button", title: "Adicionar botão" }, [
-    h("span", { html: svg("plus") }), h("div", { class: "name" }, "Novo botão"),
-  ]);
-  add.addEventListener("click", addButton);
-  add.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addButton(); } });
-  add.addEventListener("dragover", (e) => { if (!dragId) return; e.preventDefault(); clearDrop(); add.classList.add("drop-before"); });
-  add.addEventListener("dragleave", () => add.classList.remove("drop-before"));
-  add.addEventListener("drop", (e) => { e.preventDefault(); clearDrop(); if (dragId) moveTo(dragId, null, false); });
-  deck.appendChild(add);
-
   el.appendChild(deck);
-  el.appendChild(h("div", { class: "hint-line" }, [
-    h("span", {}, ["Arraste ", "os botões para reordenar"]),
-    h("span", {}, [h("kbd", {}, "Del"), " remove"]),
-    h("span", {}, [h("kbd", {}, "Ctrl"), " + ", h("kbd", {}, "D"), " duplica"]),
-    h("span", {}, [h("kbd", {}, "Ctrl"), " + ", h("kbd", {}, "N"), " novo"]),
-  ]));
   el.scrollTop = keep;
 }
 
@@ -454,18 +453,15 @@ function refreshHead() {
 function renderInspector() {
   const box = $("#inspector");
   stopRecording();
-  box.innerHTML = "";
   const btn = selected();
-  box.classList.toggle("open", !!btn && isNarrow());
   if (!btn) {
-    box.appendChild(h("div", { class: "insp-empty" }, [
-      h("div", { html: svg("pointer") }),
-      h("b", {}, "Nenhum botão selecionado"), h("br"),
-      "Clique em um botão ao lado para editar, ou crie um novo.",
-      h("div", { style: "margin-top:16px" }, h("button", { class: "btn primary", onclick: addButton, html: `${svg("plus")}Novo botão` })),
-    ]));
+    // deixa a gaveta terminar de deslizar antes de esvaziar o conteúdo
+    clearTimeout(renderInspector.t);
+    renderInspector.t = setTimeout(() => { if (!S.selId) box.innerHTML = ""; }, 260);
     return;
   }
+  clearTimeout(renderInspector.t);
+  box.innerHTML = "";
   const idx = S.config.buttons.indexOf(btn);
   const nameInput = h("input", {
     class: "name-input", value: btn.label || "", placeholder: "Nome do botão", maxlength: "40", spellcheck: "false",
@@ -474,13 +470,11 @@ function renderInspector() {
   box.appendChild(h("div", { class: "insp-head" }, [
     headKey(btn),
     h("div", { class: "meta" }, [h("small", {}, `${typeMeta(btn.type).group} · ${idx + 1} de ${S.config.buttons.length}`), nameInput]),
-    h("button", { class: "btn icon-btn ghost insp-close", title: "Fechar", onclick: () => select(null), html: svg("x") }),
+    h("button", { class: "btn icon-btn ghost insp-close", title: "Fechar (Esc)", "aria-label": "Fechar", onclick: closeDetails, html: svg("x") }),
   ]));
   box.appendChild(actionSection(btn));
   box.appendChild(appearanceSection(btn));
   box.appendChild(h("div", { class: "insp-actions" }, [
-    h("button", { class: "btn sm", title: "Mover para antes", disabled: idx === 0, onclick: () => moveSelected(-1), html: `${svg("left")}Mover antes` }),
-    h("button", { class: "btn sm", title: "Mover para depois", disabled: idx === S.config.buttons.length - 1, onclick: () => moveSelected(1), html: `Mover depois${svg("right")}` }),
     h("button", { class: "btn sm", onclick: duplicateSelected, html: `${svg("copy")}Duplicar` }),
     h("button", { class: "btn sm danger", onclick: removeSelected, html: `${svg("trash")}Remover` }),
   ]));
@@ -734,30 +728,42 @@ function appearanceSection(btn) {
   return sec;
 }
 
-/* --- atalhos de teclado do editor --- */
+/* --- atalhos de teclado do editor (alternativa silenciosa ao mouse) --- */
 
 document.addEventListener("keydown", (e) => {
-  if (S.page !== "buttons" || document.querySelector(".backdrop")) return;
+  if (document.querySelector(".backdrop")) return; // modal aberto cuida das próprias teclas
+  if (S.stopRec) return; // gravando atalho: Esc cancela a gravação, não fecha a gaveta
+  if (e.key === "Escape") {
+    if (navIsOpen()) { closeNav(); return; }
+    if (S.page === "buttons" && S.selId) { closeDetails(); }
+    return;
+  }
+  if (S.page !== "buttons") return;
   const t = e.target;
   const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") { e.preventDefault(); addButton(); return; }
-  if (typing || S.stopRec) return;
+  if (typing) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicateSelected(); return; }
   if (e.key === "Delete") { e.preventDefault(); removeSelected(); return; }
-  if (e.key === "Escape") { select(null); return; }
   const dirs = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
-  if (dirs[e.key] && S.config.buttons.length) {
+  if (dirs[e.key] && S.selId) {
     e.preventDefault();
     const i = S.config.buttons.findIndex((b) => b.id === S.selId);
-    const n = Math.max(0, Math.min(S.config.buttons.length - 1, (i < 0 ? 0 : i + dirs[e.key])));
+    const n = Math.max(0, Math.min(S.config.buttons.length - 1, i + dirs[e.key]));
     select(S.config.buttons[n].id);
   }
+});
+
+// Clique fora da gaveta de detalhes fecha. Clicar em outro botão só troca a seleção.
+document.addEventListener("mousedown", (e) => {
+  if (!S.selId || S.page !== "buttons") return;
+  if (e.target.closest("#inspector, .key, .backdrop, .toast, .toolbar, .topbar, .sidebar, .nav-scrim")) return;
+  closeDetails();
 });
 
 $("#addBtn").addEventListener("click", addButton);
 $("#colsDown").addEventListener("click", () => setColumns((S.config.grid.columns || 4) - 1));
 $("#colsUp").addEventListener("click", () => setColumns((S.config.grid.columns || 4) + 1));
-window.matchMedia("(max-width: 1060px)").addEventListener("change", () => renderInspector());
 
 /* ============================================================
    CELULAR e SISTEMA
@@ -768,6 +774,7 @@ function renderUpdate(u, frozen) {
   msg.className = "msg";
   apply.hidden = true;
   $("#updBadge").hidden = u.status !== "available";
+  $("#burgerDot").hidden = u.status !== "available";
   const link = u.release_url ? ` <a href="${u.release_url}" target="_blank" rel="noopener">Abrir página da versão</a>` : "";
   if (u.status === "checking") msg.textContent = "Verificando…";
   else if (u.status === "available") {
@@ -785,6 +792,8 @@ function applyInfo(i) {
   S.info = i;
   $("#dot").className = "dot on";
   $("#liveText").textContent = "no ar";
+  $("#dotTop").className = "dot on";
+  $("#liveTop").textContent = "no ar";
   $("#sideAddr").textContent = `${i.ip}:${i.port}`;
   $("#sideVer").textContent = `v${i.version}`;
 
@@ -823,7 +832,10 @@ let infoBusy = false;
 async function refreshInfo() {
   if (infoBusy) return;
   try { applyInfo(await api("/api/panel/info")); }
-  catch (e) { $("#dot").className = "dot off"; $("#liveText").textContent = "sem resposta"; }
+  catch (e) {
+    $("#dot").className = "dot off"; $("#liveText").textContent = "sem resposta";
+    $("#dotTop").className = "dot off"; $("#liveTop").textContent = "sem resposta";
+  }
 }
 
 $("#copyUrl").onclick = async () => {
