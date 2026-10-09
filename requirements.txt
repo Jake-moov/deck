@@ -11,3 +11,4 @@ pywin32
 obsws-python
 qrcode
 pywebview
+psutil

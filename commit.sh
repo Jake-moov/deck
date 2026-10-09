@@ -16,11 +16,26 @@ for arg in "$@"; do
   esac
 done
 
+# Blindagem: remove sequências de escape ANSI (setas, delete etc. que vazam
+# quando você edita a mensagem no prompt) e outros caracteres de controle.
+# Evita mensagens corrompidas no git log.
+sanitize() {
+  printf '%s' "$1" \
+    | sed -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' -e 's/\x1b[()][0-9A-B]//g' \
+    | tr -d '\000-\010\013\014\016-\037\177'
+}
+
 if [ -z "$MESSAGE" ]; then
-  read -r -p "Mensagem do commit (Enter = automática com data/hora): " MESSAGE
+  # -e ativa a edição readline: as setas movem o cursor em vez de sujar a mensagem
+  read -r -e -p "Mensagem do commit (Enter = automática com data/hora): " MESSAGE
   if [ -z "$MESSAGE" ]; then
     MESSAGE="atualização automática - $(date '+%Y-%m-%d %H:%M')"
   fi
+fi
+
+MESSAGE="$(sanitize "$MESSAGE")"
+if [ -z "$MESSAGE" ]; then
+  MESSAGE="atualização automática - $(date '+%Y-%m-%d %H:%M')"
 fi
 
 git add -A
