@@ -1473,6 +1473,26 @@ async def api_discord_mute():
         return JSONResponse({"error": f"não consegui enviar o atalho: {e}"}, status_code=500)
 
 
+@app.get("/api/apps/running")
+def api_apps_running():
+    """Lista nomes de processos em execução (para as bolinhas de status dos botões)."""
+    if os.name != "nt":
+        return JSONResponse({"error": "só funciona no Windows"}, status_code=400)
+    try:
+        import psutil
+        names = set()
+        for p in psutil.process_iter(["name"]):
+            try:
+                n = (p.info.get("name") or "").lower()
+                if n:
+                    names.add(n)
+            except Exception:
+                pass
+        return {"processes": sorted(names)}
+    except Exception as e:
+        return JSONResponse({"error": f"psutil indisponível: {e}"}, status_code=500)
+
+
 @app.get("/api/volume/apps")
 def api_get_app_volumes():
     if os.name != "nt":
