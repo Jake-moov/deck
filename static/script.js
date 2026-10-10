@@ -1,7 +1,7 @@
 /* ---------- categorias (cor do LED de cada tecla) ---------- */
 
 const TYPE_CATEGORY = {
-  app: "app", start_app: "app", script: "app",
+  app: "app", start_app: "app", script: "app", resolution: "app",
   hotkey: "hotkey", media: "media", mic_mute: "media",
   obs_scene: "obs", obs_mute: "obs", obs_record: "obs", obs_stream: "obs",
   macro: "macro",

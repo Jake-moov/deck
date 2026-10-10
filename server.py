@@ -9,6 +9,7 @@ Memory footprint: this is a single-process FastAPI/uvicorn server with no GUI �
 typically well under 50MB RAM, since all rendering happens in your phone's browser.
 """
 
+import ctypes
 import gc
 import hashlib
 import io
@@ -24,6 +25,7 @@ import threading
 import time
 import urllib.request
 import zipfile
+from ctypes import wintypes
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body, Request, HTTPException
@@ -391,6 +393,83 @@ def _send_hotkey(value: str, hold: float = 0.05) -> None:
             time.sleep(hold)
 
 
+# ---------- Troca de resolução do monitor (botão "resolution") ----------
+
+def set_display_resolution(width: int, height: int) -> bool:
+    """Troca a resolução do monitor principal via Windows API."""
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Resolução inválida: {width}x{height}.")
+    if os.name != "nt":
+        raise RuntimeError("Trocar a resolução só funciona no Windows.")
+
+    class DEVMODE(ctypes.Structure):
+        _fields_ = [
+            ("dmDeviceName", wintypes.WCHAR * 32),
+            ("dmSpecVersion", wintypes.WORD),
+            ("dmDriverVersion", wintypes.WORD),
+            ("dmSize", wintypes.WORD),
+            ("dmDriverExtra", wintypes.WORD),
+            ("dmFields", wintypes.DWORD),
+            ("dmOrientation", wintypes.SHORT),
+            ("dmPaperSize", wintypes.SHORT),
+            ("dmPaperLength", wintypes.SHORT),
+            ("dmPaperWidth", wintypes.SHORT),
+            ("dmScale", wintypes.SHORT),
+            ("dmCopies", wintypes.SHORT),
+            ("dmDefaultSource", wintypes.SHORT),
+            ("dmPrintQuality", wintypes.SHORT),
+            ("dmColor", wintypes.SHORT),
+            ("dmDuplex", wintypes.SHORT),
+            ("dmYResolution", wintypes.SHORT),
+            ("dmTTOption", wintypes.SHORT),
+            ("dmCollate", wintypes.SHORT),
+            ("dmFormName", wintypes.WCHAR * 32),
+            ("dmLogPixels", wintypes.WORD),
+            ("dmBitsPerPel", wintypes.DWORD),
+            ("dmPelsWidth", wintypes.DWORD),
+            ("dmPelsHeight", wintypes.DWORD),
+            ("dmDisplayFlags", wintypes.DWORD),
+            ("dmDisplayFrequency", wintypes.DWORD),
+            ("dmICMMethod", wintypes.DWORD),
+            ("dmICMIntent", wintypes.DWORD),
+            ("dmMediaType", wintypes.DWORD),
+            ("dmDitherType", wintypes.DWORD),
+            ("dmReserved1", wintypes.DWORD),
+            ("dmReserved2", wintypes.DWORD),
+            ("dmPanningWidth", wintypes.DWORD),
+            ("dmPanningHeight", wintypes.DWORD),
+        ]
+
+    DM_PELSWIDTH = 0x80000
+    DM_PELSHEIGHT = 0x100000
+    DISP_CHANGE_SUCCESSFUL = 0
+
+    devmode = DEVMODE()
+    devmode.dmSize = ctypes.sizeof(DEVMODE)
+    devmode.dmPelsWidth = width
+    devmode.dmPelsHeight = height
+    devmode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT
+
+    result = ctypes.windll.user32.ChangeDisplaySettingsW(ctypes.byref(devmode), 0)
+    return result == DISP_CHANGE_SUCCESSFUL
+
+
+def handle_resolution_button(value: str) -> dict:
+    """Processa botão do tipo 'resolution'. Value no formato '800x600'."""
+    try:
+        parts = str(value or "").lower().replace(" ", "").split("x")
+        if len(parts) != 2:
+            return {"ok": False, "error": f"Formato inválido: '{value}'. Use LARGURAxALTURA (ex: 800x600)."}
+        width, height = int(parts[0]), int(parts[1])
+        if set_display_resolution(width, height):
+            return {"ok": True}
+        return {"ok": False, "error": f"Windows recusou a resolução {width}x{height}."}
+    except ValueError:
+        return {"ok": False, "error": f"Resolução inválida: '{value}'."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def run_action(btn: dict, cfg: dict) -> None:
     action_type = btn.get("type")
     value = btn.get("value")
@@ -464,6 +543,13 @@ def run_action(btn: dict, cfg: dict) -> None:
         # Toggles the actual Windows default microphone — unlike a hotkey,
         # this doesn't depend on any app having that shortcut configured.
         toggle_mic_mute()
+
+    elif action_type == "resolution":
+        # value: "LARGURAxALTURA", ex. "800x600". O handler devolve {"ok", "error"}; aqui o erro vira
+        # exceção para chegar ao celular como nos outros tipos (e também interromper uma macro).
+        res = handle_resolution_button(value)
+        if not res.get("ok"):
+            raise RuntimeError(res.get("error") or "Falha ao trocar a resolução")
 
     else:
         raise ValueError(f"Unknown action type: {action_type}")

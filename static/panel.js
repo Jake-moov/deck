@@ -117,6 +117,7 @@ const TYPES = {
   start_app:  { label: "Abrir app instalado",       group: "Apps e sistema", cat: "app",    kind: "app_picker" },
   app:        { label: "Abrir programa (.exe)",     group: "Apps e sistema", cat: "app",    kind: "path", path: "Programa ou comando", pick: true },
   script:     { label: "Rodar script ou comando",   group: "Apps e sistema", cat: "app",    kind: "path", path: "Comando ou arquivo de script", pick: true },
+  resolution: { label: "Trocar resolução do monitor", group: "Apps e sistema", cat: "app",    kind: "text", valueLabel: "Resolução (LARGURAxALTURA, ex: 800x600)" },
   hotkey:     { label: "Atalho de teclado",         group: "Teclado",        cat: "hotkey", kind: "hotkey" },
   macro:      { label: "Macro (sequência de ações)", group: "Teclado",       cat: "macro",  kind: "steps" },
   media:      { label: "Controle de mídia",         group: "Mídia e áudio",  cat: "media",  kind: "select", options: MEDIA_OPTIONS, valueLabel: "Ação" },
@@ -126,7 +127,7 @@ const TYPES = {
   obs_record: { label: "OBS · gravar",              group: "OBS",            cat: "obs",    kind: "none" },
   obs_stream: { label: "OBS · transmitir",          group: "OBS",            cat: "obs",    kind: "none" },
 };
-const STEP_TYPES = ["hotkey", "media", "app", "start_app", "script", "delay", "mic_mute", "obs_scene", "obs_mute", "obs_record", "obs_stream"];
+const STEP_TYPES = ["hotkey", "media", "app", "start_app", "script", "delay", "resolution", "mic_mute", "obs_scene", "obs_mute", "obs_record", "obs_stream"];
 const typeMeta = (t) => TYPES[t] || TYPES.app;
 
 /* ---------- teclas ---------- */
@@ -171,6 +172,7 @@ function captionOf(btn) {
     case "start_app": return btn.app_name || "App instalado";
     case "app": return (btn.value || "").split(/[\\/]/).pop() || "Programa";
     case "script": return "Script";
+    case "resolution": return btn.value ? `Tela ${btn.value}` : "Resolução";
     case "hotkey": return btn.value ? comboText(btn.value) : "Atalho";
     case "media": return (MEDIA_OPTIONS.find((o) => o[0] === btn.value) || [0, "Mídia"])[1];
     case "mic_mute": return "Microfone";
