@@ -516,13 +516,14 @@ function cssEscape(s) {
 }
 
 async function fetchAppIcon(app) {
-  if (!app.exe_path || appIconCache.has(app.process)) return;
+  const iconPath = app.aumid || app.exe_path;
+  if (!iconPath || appIconCache.has(app.process)) return;
   appIconCache.set(app.process, "");
   try {
     const res = await fetch("/api/extract-icon", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: app.exe_path }),
+      body: JSON.stringify({ path: iconPath }),
     });
     const data = await res.json();
     if (res.ok && data.icon_url) {
@@ -927,12 +928,18 @@ async function updateAppDots() {
     const res = await fetch("/api/apps/running");
     if (!res.ok) return;
     const data = await res.json();
-    const running = new Set((data.processes || []).map((n) => n.toLowerCase()));
+    const running = (data.processes || []).map((n) => n.toLowerCase());
     document.querySelectorAll(".key[data-app]").forEach((el) => {
       const app = el.getAttribute("data-app");
       const procs = APP_PROC_MAP[app];
-      if (!procs) return;
-      const isActive = procs.some((p) => running.has(p.toLowerCase()));
+      // match exato primeiro, depois substring (para apps da Store/UWP)
+      let isActive = false;
+      if (procs) {
+        isActive = procs.some((p) => running.includes(p.toLowerCase()));
+      }
+      if (!isActive && app) {
+        isActive = running.some((r) => r.includes(app));
+      }
       el.classList.toggle("app-active", isActive);
     });
   } catch (e) {
