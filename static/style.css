@@ -184,6 +184,25 @@ html, body {
 .screens.on-audio { transform: translateX(-50%); }
 .screens.no-anim { transition: none; }
 
+/* modo split: duas telas lado a lado */
+.screens.split {
+  width: 100%;
+  transform: none !important;
+}
+.screens.split .screen {
+  width: 50%;
+}
+/* no split, esconde o volume rápido das Teclas (redundante com o mixer) */
+.screens.split .screen-apps .quick-volume {
+  display: none;
+}
+
+/* indicador das tabs no modo split: cobre as duas */
+.tabs-pill.split .tabs-indicator {
+  width: calc(100% - 8px);
+  transform: none !important;
+}
+
 .screen {
   width: 50%;
   flex-shrink: 0;
