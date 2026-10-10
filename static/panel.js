@@ -117,11 +117,11 @@ const TYPES = {
   start_app:  { label: "Abrir app instalado",       group: "Apps e sistema", cat: "app",    kind: "app_picker" },
   app:        { label: "Abrir programa (.exe)",     group: "Apps e sistema", cat: "app",    kind: "path", path: "Programa ou comando", pick: true },
   script:     { label: "Rodar script ou comando",   group: "Apps e sistema", cat: "app",    kind: "path", path: "Comando ou arquivo de script", pick: true },
-  resolution: { label: "Trocar resolução do monitor", group: "Apps e sistema", cat: "app",    kind: "text", valueLabel: "Resolução (LARGURAxALTURA, ex: 800x600)" },
   hotkey:     { label: "Atalho de teclado",         group: "Teclado",        cat: "hotkey", kind: "hotkey" },
   macro:      { label: "Macro (sequência de ações)", group: "Teclado",       cat: "macro",  kind: "steps" },
   media:      { label: "Controle de mídia",         group: "Mídia e áudio",  cat: "media",  kind: "select", options: MEDIA_OPTIONS, valueLabel: "Ação" },
   mic_mute:   { label: "Mutar microfone (sistema)", group: "Mídia e áudio",  cat: "media",  kind: "none" },
+  resolution: { label: "Trocar resolução do monitor", group: "Apps e sistema", cat: "app",    kind: "text", valueLabel: "Resolução (LARGURAxALTURA, ex: 800x600)" },
   obs_scene:  { label: "OBS · trocar cena",         group: "OBS",            cat: "obs",    kind: "text", valueLabel: "Nome da cena" },
   obs_mute:   { label: "OBS · mutar fonte",         group: "OBS",            cat: "obs",    kind: "text", valueLabel: "Nome da fonte de áudio" },
   obs_record: { label: "OBS · gravar",              group: "OBS",            cat: "obs",    kind: "none" },
@@ -195,7 +195,7 @@ function iconEl(icon) {
 
 /* ---------- navegação ---------- */
 
-const PAGE_TITLES = { buttons: "Botões", phone: "Celular", system: "Sistema" };
+const PAGE_TITLES = { buttons: "Botões", phone: "Celular", desktop: "Desktop", system: "Sistema" };
 
 function openNav() {
   $("#sidebar").classList.add("open");
@@ -219,6 +219,15 @@ function go(page) {
   $("#crumb").textContent = PAGE_TITLES[page] || "";
   closeNav();
   if (page !== "buttons") closeDetails();
+  // Lazy loading: só carrega o Deck embutido quando o usuário abre a aba Desktop.
+  // Recarrega se a config mudou (botões editados) desde o último carregamento.
+  if (page === "desktop") {
+    const frame = $("#desktopFrame");
+    if (frame && (!frame.src || S.desktopDirty)) {
+      frame.src = "/";
+      S.desktopDirty = false;
+    }
+  }
   try { localStorage.setItem("deck.page", page); } catch (e) { /* sem storage */ }
   $$("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === `page-${page}`));
@@ -290,6 +299,7 @@ async function save(keepalive = false) {
       body: JSON.stringify({ grid: S.config.grid, buttons: S.config.buttons.map(cleanButton) }),
     });
     S.dirty = false;
+    S.desktopDirty = true;  // o Deck embutido precisa recarregar
     setSave("saved");
   } catch (e) {
     setSave("error", `Não salvou: ${e.message} — clique para tentar de novo`);
@@ -868,12 +878,7 @@ $("#autostart").onchange = async (e) => {
   delete el.dataset.busy;
 };
 $("#openDeck").onclick = () => post("/api/panel/open-deck").catch((e) => toast(e.message));
-$("#openDesktop").onclick = () => post("/api/panel/open-desktop").catch((e) => toast(e.message));
-$("#desktopAutostart").onchange = async (e) => {
-  const el = e.target;
-  try { await post("/api/panel/desktop-autostart", { enabled: el.checked }); toast(el.checked ? "A janela abre junto com o Deck" : "Abertura automática desativada"); }
-  catch (err) { toast(err.message); el.checked = !el.checked; }
-};
+// Desktop embutido: lazy loading via go("desktop") — sem handlers aqui.
 $("#openData").onclick = () => post("/api/panel/open-data").catch((e) => toast(e.message));
 
 $("#check").onclick = async () => {
