@@ -282,3 +282,19 @@ a { color: var(--gold); }
   .crumb { display: none; }
 }
 .insp-close { margin-left: auto; flex-shrink: 0; }
+
+/* ===== Desktop embed (Deck dentro do painel) ===== */
+.desktop-embed {
+  flex: 1;
+  min-height: 0;
+  padding: 0 28px 22px;
+  display: flex;
+}
+.desktop-embed iframe {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid var(--border, rgba(255,255,255,.08));
+  border-radius: 12px;
+  background: #0a0a0a;
+}
