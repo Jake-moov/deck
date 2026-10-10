@@ -880,6 +880,13 @@ def get_app_sessions() -> list:
     Windows Volume Mixer shows. Sessions with no process (system sounds with none
     playing) are skipped too. Multiple sessions from the same process are merged
     into one entry and controlled together."""
+    # Mapeamento AUMID -> exe para apps da Store (fora do job COM, não usa COM)
+    try:
+        _aumids, _ = _scan_processes()
+        _exe_to_aumid = {v.lower(): k for k, v in _aumids.items()}
+    except Exception:
+        _exe_to_aumid = {}
+
     def job():
         from pycaw.pycaw import AudioUtilities
         try:
@@ -909,12 +916,17 @@ def get_app_sessions() -> list:
                 exe_path = proc.exe()
             except Exception:
                 exe_path = None
+            # Para apps da Store (WindowsApps), inclui o AUMID para extração de ícone
+            aumid = None
+            if exe_path and "WindowsApps" in exe_path:
+                aumid = _exe_to_aumid.get(pname.lower())
             groups[pname] = {
                 "process": pname,
                 "label": pname.rsplit(".", 1)[0].replace("_", " ").capitalize(),
                 "level": round(vol.GetMasterVolume() * 100),
                 "muted": bool(vol.GetMute()),
                 "exe_path": exe_path,
+                "aumid": aumid,
             }
         return list(groups.values())
     return _com_run(job)
