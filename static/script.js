@@ -42,6 +42,13 @@ function h(tag, attrs = {}, children = []) {
   return node;
 }
 
+
+/* ---------- ícones SVG (definidos no topo para evitar TDZ) ---------- */
+const SVG_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const SVG_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+const SVG_SPK = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>';
+const SVG_SPK_MUTE = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.6 3l2.5-2.5-1.4-1.4-2.5 2.5-2.5-2.5-1.4 1.4l2.5 2.5-2.5 2.5 1.4 1.4 2.5-2.5 2.5 2.5 1.4-1.4-2.5-2.5z"/></svg>';
+function spkIcon(muted) { return muted ? SVG_SPK_MUTE : SVG_SPK; }
 function clamp(v, lo = 0, hi = 100) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -283,45 +290,44 @@ function goToScreen(name, keepInlineTransform = false) {
   renderScreens();
 }
 
+let lastTabTap = { target: null, time: 0 };
+let tabTapTimer = null;
+
 screenTabs.addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
   if (!btn) return;
-  // click simples = navegação single (o merge é via long-press de 3s)
-  if (btn.dataset.longpress === "1") {
-    btn.dataset.longpress = "";
+  const target = btn.dataset.screen;
+  const now = Date.now();
+
+  // Double-tap (2 toques em <400ms) na aba inativa = merge (split)
+  if (lastTabTap.target === target && now - lastTabTap.time < 400) {
+    lastTabTap = { target: null, time: 0 };
+    if (tabTapTimer) {
+      clearTimeout(tabTapTimer);
+      tabTapTimer = null;
+    }
+    // só faz merge se a aba não está ativa
+    if (!activeScreens.includes(target)) {
+      vibrate(30);
+      activeScreens = ["apps", "audio"].filter((s) => activeScreens.includes(s) || s === target);
+      activeScreens.sort((a, b) => (a === "apps" ? -1 : 1));
+      if (activeScreens.length > 2) activeScreens = activeScreens.slice(0, 2);
+      renderScreens();
+    }
     return;
   }
-  vibrate(10);
-  goToScreen(btn.dataset.screen);
-});
 
-// Long-press (3s) numa aba inativa = merge (split). Evita split acidental.
-let tabPressTimer = null;
-screenTabs.addEventListener("pointerdown", (e) => {
-  const btn = e.target.closest(".tab-btn");
-  if (!btn) return;
-  const target = btn.dataset.screen;
-  // só faz sentido dar merge se a aba não está ativa
-  if (activeScreens.includes(target)) return;
-  tabPressTimer = setTimeout(() => {
-    btn.dataset.longpress = "1";
-    vibrate(30);
-    // merge: adiciona a aba ao split (ordem fixa apps, audio)
-    activeScreens = ["apps", "audio"].filter((s) => activeScreens.includes(s) || s === target);
-    activeScreens.sort((a, b) => (a === "apps" ? -1 : 1));
-    if (activeScreens.length > 2) activeScreens = activeScreens.slice(0, 2);
-    renderScreens();
-    tabPressTimer = null;
-  }, 3000);
+  // Primeiro toque: aguarda 400ms pra ver se vem o segundo (double-tap).
+  // Se não vier, é single-tap = navegação normal.
+  lastTabTap = { target, time: now };
+  if (tabTapTimer) clearTimeout(tabTapTimer);
+  tabTapTimer = setTimeout(() => {
+    tabTapTimer = null;
+    lastTabTap = { target: null, time: 0 };
+    vibrate(10);
+    goToScreen(target);
+  }, 400);
 });
-["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
-  screenTabs.addEventListener(ev, () => {
-    if (tabPressTimer) {
-      clearTimeout(tabPressTimer);
-      tabPressTimer = null;
-    }
-  })
-);
 
 // Swipe horizontal no viewport troca de tela. Não inicia em cima de
 // controles interativos (faders, botões, mixer com rolagem própria).
@@ -405,7 +411,7 @@ function paintMaster(level, muted) {
   for (const m of masterFaders) {
     m.readout.textContent = muted ? "MUDO" : `${level}%`;
     m.readout.title = "";
-    m.muteBtn.textContent = muted || level === 0 ? "🔇" : level < 50 ? "🔉" : "🔊";
+    m.muteBtn.innerHTML = spkIcon(muted || level === 0);
     m.muteBtn.classList.toggle("muted", !!muted);
   }
 }
@@ -500,10 +506,12 @@ const appIconCache = new Map(); // process name -> icon_url ("" while pending)
 const appStripState = new Map(); // process name -> { fader, readout, muteBtnEl, dragging, level, muted, sendTimer }
 
 function buildMasterFaderCol() {
-  const icon = h("span", { class: "app-icon" }, "🔊");
+  const icon = h("span", { class: "app-icon" });
+  icon.innerHTML = SVG_SPK;
   const name = h("span", { class: "fader-name" }, "Geral");
   const readout = h("span", { class: "volume-readout" }, "--%");
-  const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" }, "🔊");
+  const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" });
+  muteBtnEl.innerHTML = SVG_SPK;
   const footer = h("div", { class: "fader-footer" }, [
     icon,
     h("span", { class: "footer-divider" }),
@@ -589,7 +597,8 @@ function buildAppFader(app, state) {
   const name = h("span", { class: "fader-name" }, app.label);
   name.title = app.label;
   const readout = h("span", { class: "volume-readout" }, `${app.level}%`);
-  const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" }, app.muted ? "🔇" : "🔊");
+  const muteBtnEl = h("button", { class: "mute-btn", "aria-label": "Mudo" });
+  muteBtnEl.innerHTML = spkIcon(app.muted);
   const footer = h("div", { class: "fader-footer" }, [
     icon,
     h("span", { class: "footer-divider" }),
@@ -605,7 +614,7 @@ function buildAppFader(app, state) {
     onInput: (v) => {
       state.level = v;
       readout.textContent = `${v}%`;
-      muteBtnEl.textContent = v === 0 ? "🔇" : "🔊";
+      muteBtnEl.innerHTML = spkIcon(v === 0);
       clearTimeout(state.sendTimer);
       state.sendTimer = setTimeout(() => sendAppVolume(app.process, { level: v }), 60);
     },
@@ -617,7 +626,7 @@ function buildAppFader(app, state) {
   muteBtnEl.addEventListener("click", () => {
     vibrate(12);
     state.muted = !state.muted;
-    muteBtnEl.textContent = state.muted ? "🔇" : "🔊";
+    muteBtnEl.innerHTML = spkIcon(state.muted);
     fader.setMuted(state.muted);
     sendAppVolume(app.process, { muted: state.muted });
   });
@@ -637,7 +646,7 @@ function updateAppFaderUI(process, level, muted) {
   if (!state || !state.fader) return;
   state.fader.set(level, muted);
   state.readout.textContent = `${level}%`;
-  state.muteBtnEl.textContent = muted ? "🔇" : "🔊";
+  state.muteBtnEl.innerHTML = spkIcon(muted);
 }
 
 function sendAppVolume(process, payload) {
@@ -675,7 +684,7 @@ const micFader = createFader(micPanel, {
   onInput: (v) => {
     micState.level = v;
     micReadout.textContent = `${v}%`;
-    micMuteBtn.textContent = v === 0 ? "🔇" : "🔊";
+    micMuteBtn.innerHTML = spkIcon(v === 0);
     clearTimeout(micState.sendTimer);
     micState.sendTimer = setTimeout(() => sendMicVolume({ level: v }), 80);
   },
@@ -687,7 +696,7 @@ micFader.el.addEventListener("pointerdown", () => { micState.dragging = true; vi
 function updateMicUI(level, muted) {
   if (!micState.dragging) micFader.set(level, muted);
   micReadout.textContent = `${level}%`;
-  micMuteBtn.textContent = muted ? "🔇" : "🔊";
+  micMuteBtn.innerHTML = spkIcon(muted);
 }
 
 async function fetchMicVolume() {
@@ -753,7 +762,8 @@ function setNowPlayingIdle(msg, detail) {
   npArtist.textContent = detail || "";
   npArtist.title = detail || "";
   npSource.textContent = "";
-  npPlayPause.textContent = "▶";
+
+  npPlayPause.innerHTML = SVG_PLAY;
   npProgressFill.style.width = "0%";
   npState = { playing: false, progress: 0, duration: 0, at: Date.now() };
   npSourceId = null;
@@ -840,7 +850,7 @@ async function fetchNowPlaying() {
     npArtist.title = data.artist || "";
     npSource.textContent = data.source_name || "";
     npSourceId = data.source || null;
-    npPlayPause.textContent = data.playing ? "⏸" : "▶";
+    npPlayPause.innerHTML = data.playing ? SVG_PAUSE : SVG_PLAY;
     npState = {
       playing: !!data.playing,
       progress: data.progress_ms || 0,
@@ -903,6 +913,12 @@ async function updateNpArt(thumbnailUrl, title, artist) {
 
 function sendNowPlayingControl(action) {
   vibrate(15);
+  // Atualização otimista: troca o ícone imediatamente para resposta instantânea.
+  // O fetchNowPlaying() posterior sincroniza com o estado real.
+  if (action === "play_pause" && npState) {
+    npState.playing = !npState.playing;
+    npPlayPause.innerHTML = npState.playing ? SVG_PAUSE : SVG_PLAY;
+  }
   fetch("/api/nowplaying/control", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
