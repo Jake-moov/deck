@@ -33,7 +33,7 @@ import keyboard
 
 
 # Versão do programa. É a única fonte da verdade: o make_update.py lê esta linha ao gerar o pacote.
-APP_VERSION = "1.1.7"
+APP_VERSION = "1.1.9"
 # Versão embutida no .exe (não muda quando um pacote de atualização é carregado por cima).
 _BUNDLED_VERSION = globals().get("_BUNDLED_VERSION") or APP_VERSION
 
