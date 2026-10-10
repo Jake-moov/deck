@@ -188,7 +188,8 @@ function renderGrid() {
     return;
   }
   for (const btn of config.buttons) {
-    const el = h("button", { class: "key", "data-category": categoryOf(btn.type), "data-id": btn.id }, [
+    const appKey = (btn.label || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const el = h("button", { class: "key", "data-category": categoryOf(btn.type), "data-id": btn.id, "data-app": appKey }, [
       iconNode(btn.icon),
       h("span", { class: "label" }, btn.label || btn.id),
     ]);
@@ -907,3 +908,38 @@ if (isIOS && !isStandalone) {
 
 loadConfig();
 connect();
+
+/* ---------- bolinhas de status: app rodando = acesa ---------- */
+
+const APP_PROC_MAP = {
+  discord: ["discord.exe"],
+  whatsapp: ["whatsapp.exe"],
+  spotube: ["spotube.exe"],
+  spotify: ["spotify.exe"],
+  claude: ["claude.exe"],
+  chatgpt: ["chatgpt.exe"],
+  chrome: ["chrome.exe"],
+  steam: ["steam.exe"],
+};
+
+async function updateAppDots() {
+  try {
+    const res = await fetch("/api/apps/running");
+    if (!res.ok) return;
+    const data = await res.json();
+    const running = new Set((data.processes || []).map((n) => n.toLowerCase()));
+    document.querySelectorAll(".key[data-app]").forEach((el) => {
+      const app = el.getAttribute("data-app");
+      const procs = APP_PROC_MAP[app];
+      if (!procs) return;
+      const isActive = procs.some((p) => running.has(p.toLowerCase()));
+      el.classList.toggle("app-active", isActive);
+    });
+  } catch (e) {
+    // backend ainda não tem o endpoint — ignora silenciosamente
+  }
+}
+
+// atualiza a cada 5s
+setInterval(updateAppDots, 5000);
+setTimeout(updateAppDots, 2000);

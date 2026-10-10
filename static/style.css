@@ -207,21 +207,24 @@ html, body {
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(var(--cols, 3), 1fr);
-  grid-auto-rows: minmax(0, 1fr);
+  grid-auto-rows: auto;
+  align-content: start;
   gap: 10px;
   padding: 4px 12px 10px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .key {
   position: relative;
+  aspect-ratio: 1;
   border-radius: 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 4px;
-  padding: 6px;
+  padding: 16% 6px 10px;
   min-width: 0;
   min-height: 0;
   color: var(--text);
@@ -257,6 +260,7 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-top: auto;
 }
 
 .key.pressed {
@@ -278,6 +282,27 @@ html, body {
 .key[data-category="hotkey"] { --led: var(--c-hotkey); }
 .key[data-category="obs"]    { --led: var(--c-obs); }
 .key[data-category="macro"]  { --led: var(--c-macro); }
+
+/* cores de destaque por app (bolinha do botão) */
+.key[data-app="discord"]   { --led: #5865F2; }
+.key[data-app="whatsapp"]  { --led: #25D366; }
+.key[data-app="spotube"],
+.key[data-app="spotify"]   { --led: #1DB954; }
+.key[data-app="claude"]    { --led: #D97757; }
+.key[data-app="chatgpt"]   { --led: #10A37F; }
+.key[data-app="chrome"]    { --led: #4285F4; }
+.key[data-app="steam"]     { --led: #66C0F4; }
+
+/* bolinha: apagada por padrão, acesa quando o app está rodando */
+.key::after {
+  background: var(--led, var(--c-app));
+  opacity: 0.25;
+  transition: opacity 0.2s ease, box-shadow 0.2s ease;
+}
+.key.app-active::after {
+  opacity: 1;
+  box-shadow: 0 0 6px var(--led, var(--c-app));
+}
 
 .empty {
   grid-column: 1 / -1;
