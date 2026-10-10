@@ -1459,7 +1459,7 @@ def api_set_mic(payload: dict = Body(...)):
 
 
 @app.post("/api/discord/mute")
-def api_discord_mute():
+async def api_discord_mute():
     """Aperta o atalho de mute do Discord (config.json -> discord_mute_hotkey)."""
     hotkey = "ctrl+alt+-"
     try:
