@@ -796,14 +796,56 @@ async function fetchNowPlaying() {
       at: Date.now(),
     };
     renderNpProgress();
-    const art = data.thumbnail_url || DEFAULT_ART;
+    updateNpArt(data.thumbnail_url, data.title, data.artist);
+  } catch (e) {
+    setNowPlayingIdle("Sem conexão com o servidor");
+    console.warn("Não foi possível falar com o servidor:", e);
+  }
+}
+
+/* ---------- capa do álbum: SMTC primeiro, iTunes como fallback ---------- */
+
+const itunesArtCache = new Map(); // "title|artist" -> url ("" = não achou)
+
+async function fetchItunesArt(title, artist) {
+  const key = `${title}|${artist}`.toLowerCase();
+  if (itunesArtCache.has(key)) return itunesArtCache.get(key);
+  itunesArtCache.set(key, ""); // marca como pendente pra não disparar 2x
+  try {
+    const q = encodeURIComponent(`${artist} ${title}`.trim());
+    const res = await fetch(`https://itunes.apple.com/search?term=${q}&media=music&entity=song&limit=1`);
+    const data = await res.json();
+    const url = data.results?.[0]?.artworkUrl100?.replace("100x100", "600x600") || "";
+    itunesArtCache.set(key, url);
+    return url;
+  } catch (e) {
+    return "";
+  }
+}
+
+async function updateNpArt(thumbnailUrl, title, artist) {
+  // 1. tenta a capa do SMTC (backend)
+  if (thumbnailUrl) {
+    if (thumbnailUrl !== lastThumbUrl) {
+      npArt.src = thumbnailUrl;
+      lastThumbUrl = thumbnailUrl;
+    }
+    return;
+  }
+  // 2. fallback: busca no iTunes pela faixa
+  if (title) {
+    const fb = await fetchItunesArt(title, artist || "");
+    const art = fb || DEFAULT_ART;
     if (art !== lastThumbUrl) {
       npArt.src = art;
       lastThumbUrl = art;
     }
-  } catch (e) {
-    setNowPlayingIdle("Sem conexão com o servidor");
-    console.warn("Não foi possível falar com o servidor:", e);
+    return;
+  }
+  // 3. nada: placeholder
+  if (lastThumbUrl !== DEFAULT_ART) {
+    npArt.src = DEFAULT_ART;
+    lastThumbUrl = DEFAULT_ART;
   }
 }
 
