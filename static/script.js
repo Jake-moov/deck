@@ -256,25 +256,72 @@ function connect() {
 /* ---------- screen navigation (Teclas / Áudio): tabs no topo + swipe ---------- */
 
 const tabBtns = [...screenTabs.querySelectorAll(".tab-btn")];
-let currentScreen = "apps";
+let activeScreens = ["apps"]; // máx 2 em split
 
-function goToScreen(name, keepInlineTransform = false) {
-  currentScreen = name;
-  const onAudio = name === "audio";
+function renderScreens() {
+  const isSplit = activeScreens.length === 2;
+  const onAudio = activeScreens.includes("audio") && !isSplit;
   screens.classList.remove("no-anim");
-  if (!keepInlineTransform) screens.style.transform = "";
+  screens.style.transform = "";
+  screens.classList.toggle("split", isSplit);
   screens.classList.toggle("on-audio", onAudio);
   screenTabs.classList.toggle("on-audio", onAudio);
-  for (const t of tabBtns) t.classList.toggle("active", t.dataset.screen === name);
-  if (onAudio) { fetchNowPlaying(); fetchVolume(); fetchAppVolumes(); }
+  screenTabs.classList.toggle("split", isSplit);
+  for (const t of tabBtns) t.classList.toggle("active", activeScreens.includes(t.dataset.screen));
+  if (activeScreens.includes("audio")) { fetchNowPlaying(); fetchVolume(); fetchAppVolumes(); }
+}
+
+function goToScreen(name, keepInlineTransform = false) {
+  // Tap sempre = single view. Merge (split) é só via long-press de 3s.
+  if (keepInlineTransform) {
+    activeScreens = [name];
+  } else if (activeScreens.length === 1 && activeScreens[0] === name) {
+    return; // já está na tela
+  } else {
+    activeScreens = [name]; // unmerge ou troca de tela
+  }
+  renderScreens();
 }
 
 screenTabs.addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
   if (!btn) return;
+  // click simples = navegação single (o merge é via long-press de 3s)
+  if (btn.dataset.longpress === "1") {
+    btn.dataset.longpress = "";
+    return;
+  }
   vibrate(10);
   goToScreen(btn.dataset.screen);
 });
+
+// Long-press (3s) numa aba inativa = merge (split). Evita split acidental.
+let tabPressTimer = null;
+screenTabs.addEventListener("pointerdown", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  const target = btn.dataset.screen;
+  // só faz sentido dar merge se a aba não está ativa
+  if (activeScreens.includes(target)) return;
+  tabPressTimer = setTimeout(() => {
+    btn.dataset.longpress = "1";
+    vibrate(30);
+    // merge: adiciona a aba ao split (ordem fixa apps, audio)
+    activeScreens = ["apps", "audio"].filter((s) => activeScreens.includes(s) || s === target);
+    activeScreens.sort((a, b) => (a === "apps" ? -1 : 1));
+    if (activeScreens.length > 2) activeScreens = activeScreens.slice(0, 2);
+    renderScreens();
+    tabPressTimer = null;
+  }, 3000);
+});
+["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
+  screenTabs.addEventListener(ev, () => {
+    if (tabPressTimer) {
+      clearTimeout(tabPressTimer);
+      tabPressTimer = null;
+    }
+  })
+);
 
 // Swipe horizontal no viewport troca de tela. Não inicia em cima de
 // controles interativos (faders, botões, mixer com rolagem própria).
@@ -287,15 +334,17 @@ function swipeShouldIgnore(target) {
 }
 
 screensViewport.addEventListener("pointerdown", (e) => {
+  if (activeScreens.length === 2) return; // sem swipe no modo split
   if (swipeShouldIgnore(e.target)) return;
   swipe = { x0: e.clientX, y0: e.clientY, dx: 0, active: false };
 });
 
 screensViewport.addEventListener("pointermove", (e) => {
+  if (activeScreens.length === 2) return; // sem swipe no modo split
   if (!swipe || swipe.active) {
     if (swipe && swipe.active) {
       swipe.dx = e.clientX - swipe.x0;
-      const base = currentScreen === "audio" ? -screensViewport.clientWidth : 0;
+      const base = activeScreens[0] === "audio" ? -screensViewport.clientWidth : 0;
       screens.style.transform = `translateX(${base + swipe.dx}px)`;
     }
     return;
@@ -318,10 +367,11 @@ function endSwipe() {
   const dx = swipe.dx;
   swipe = null;
   if (!wasActive) return;
+  if (activeScreens.length === 2) return; // sem swipe no modo split
   const w = screensViewport.clientWidth;
-  let target = currentScreen;
-  if (dx < -w * 0.22 && currentScreen === "apps") target = "audio";
-  else if (dx > w * 0.22 && currentScreen === "audio") target = "apps";
+  let target = activeScreens[0];
+  if (dx < -w * 0.22 && activeScreens[0] === "apps") target = "audio";
+  else if (dx > w * 0.22 && activeScreens[0] === "audio") target = "apps";
   // Aplica a classe destino ANTES de soltar o transform inline (que ainda
   // sobrepõe a classe): assim a animação parte da posição arrastada.
   screens.classList.remove("no-anim");
@@ -870,7 +920,7 @@ npNext.addEventListener("click", () => sendNowPlayingControl("next"));
 
 // Só consulta o servidor com a tela de Áudio aberta (cada consulta roda um PowerShell no PC).
 setInterval(() => {
-  if (screens.classList.contains("on-audio") && !document.hidden) fetchNowPlaying();
+  if (activeScreens.includes("audio") && !document.hidden) fetchNowPlaying();
 }, 3000);
 setInterval(renderNpProgress, 500);
 
