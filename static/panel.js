@@ -866,6 +866,12 @@ $("#autostart").onchange = async (e) => {
   delete el.dataset.busy;
 };
 $("#openDeck").onclick = () => post("/api/panel/open-deck").catch((e) => toast(e.message));
+$("#openDesktop").onclick = () => post("/api/panel/open-desktop").catch((e) => toast(e.message));
+$("#desktopAutostart").onchange = async (e) => {
+  const el = e.target;
+  try { await post("/api/panel/desktop-autostart", { enabled: el.checked }); toast(el.checked ? "A janela abre junto com o Deck" : "Abertura automática desativada"); }
+  catch (err) { toast(err.message); el.checked = !el.checked; }
+};
 $("#openData").onclick = () => post("/api/panel/open-data").catch((e) => toast(e.message));
 
 $("#check").onclick = async () => {

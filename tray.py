@@ -10,6 +10,9 @@ Dois tipos de processo usam o mesmo Deck.exe:
   * principal (sem argumentos): bandeja + servidor. Fica sempre aberto, leve.
   * janela (--panel): só a janela do painel/editor, aberta sob demanda. Ao fechar a janela o
     processo termina e toda a memória dela é devolvida; o servidor não é afetado.
+  * janela do Deck (--desktop): o próprio Deck (a mesma tela do celular) numa janela nativa, sem
+    navegador. Mesma ideia da --panel: processo separado, porque o pywebview precisa da thread
+    principal e nela já roda o ícone da bandeja.
 
 Importante: este arquivo vai DENTRO do .exe e só muda com um instalador novo. A lógica do painel,
 do PIN e das atualizações fica no server.py (que pode ser atualizado sem recompilar), por isso
@@ -29,6 +32,7 @@ from pathlib import Path
 
 PORT = 8765
 PANEL_TITLE = "Deck · Painel"
+DESKTOP_TITLE = "Deck"
 
 # Preenchidos em main() (imports pesados só no processo principal; a janela --panel não precisa deles).
 server = None
@@ -209,7 +213,7 @@ def _open_edge_app(url: str) -> None:
     webbrowser.open(url)
 
 
-def _focus_existing_panel() -> None:
+def _focus_existing_panel(title: str = PANEL_TITLE) -> None:
     if os.name != "nt":
         return
     try:
@@ -224,7 +228,7 @@ def _focus_existing_panel() -> None:
         u.ShowWindow.restype = wintypes.BOOL
         u.SetForegroundWindow.argtypes = [wintypes.HWND]
         u.SetForegroundWindow.restype = wintypes.BOOL
-        hwnd = u.FindWindowW(None, PANEL_TITLE)
+        hwnd = u.FindWindowW(None, title)
         if hwnd:
             u.ShowWindow(hwnd, 9)  # SW_RESTORE
             u.SetForegroundWindow(hwnd)
@@ -260,6 +264,39 @@ def open_panel(icon=None, item=None) -> None:
     except Exception:
         log("não consegui abrir a janela:\n" + traceback.format_exc())
         _open_edge_app(f"http://127.0.0.1:{PORT}/panel")
+
+
+def run_desktop_window() -> None:
+    """Processo `Deck.exe --desktop`: abre o Deck (tela do celular) numa janela nativa e termina ao fechar."""
+    _install_hooks()
+    log("janela do Deck: abrindo")
+    handle, exists = create_mutex("Local\\DeckDesktopWindow")
+    _keep["desktop_mutex"] = handle
+    if exists:
+        log("janela do Deck: já existe uma aberta, trazendo para a frente")
+        _focus_existing_panel(DESKTOP_TITLE)
+        return
+    url = f"http://127.0.0.1:{PORT}"
+    try:
+        import webview  # pywebview (usa o WebView2 do Windows)
+        webview.create_window(DESKTOP_TITLE, url, width=420, height=750, resizable=True, min_size=(320, 500))
+        webview.start(private_mode=False, storage_path=str(_data_dir() / "webview"))
+        log("janela do Deck: fechada pelo usuário")
+    except BaseException:
+        log("janela do Deck: pywebview falhou, usando Edge em modo app:\n" + traceback.format_exc())
+        _open_edge_app(url)
+
+
+def open_desktop_window() -> dict:
+    """Abre (ou traz para a frente) a janela nativa do Deck. Chamada pelo server.py via
+    `server.open_desktop_hook` (endpoint POST /api/panel/open-desktop) e na inicialização."""
+    cmd = [sys.executable, "--desktop"] if getattr(sys, "frozen", False) else [sys.executable, str(Path(__file__).resolve()), "--desktop"]
+    try:
+        subprocess.Popen(cmd, creationflags=0x00000008, close_fds=True)  # DETACHED_PROCESS
+        return {"ok": True}
+    except Exception as e:
+        log("não consegui abrir a janela do Deck:\n" + traceback.format_exc())
+        return {"ok": False, "error": str(e)}
 
 
 # ---------- servidor (com supervisão) ----------
@@ -413,6 +450,7 @@ def main() -> None:
     icon = pystray.Icon("deck", make_icon_image(), "Deck", menu)
     _icon = icon
     server.quit_hook = lambda: quit_app(icon, None)  # usado pelo reinício após atualizar
+    server.open_desktop_hook = open_desktop_window  # usado por POST /api/panel/open-desktop
 
     threading.Thread(target=_supervise_server, name="servidor", daemon=True).start()
 
@@ -428,6 +466,12 @@ def main() -> None:
             except Exception:
                 pass
             open_panel()
+        # Preferência "Abrir a janela do Deck ao iniciar" (config.json -> desktop_autostart).
+        try:
+            if server.load_config().get("desktop_autostart"):
+                open_desktop_window()
+        except Exception:
+            log("desktop_autostart falhou:\n" + traceback.format_exc())
 
     threading.Timer(3.0, _after_start).start()
     t = threading.Timer(15.0, _background_update_check, args=(icon,))
@@ -465,5 +509,7 @@ if __name__ == "__main__":
         crash_test()
     elif "--panel" in sys.argv[1:]:
         run_panel_window()
+    elif "--desktop" in sys.argv[1:]:
+        run_desktop_window()
     else:
         main()

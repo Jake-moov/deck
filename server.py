@@ -1794,6 +1794,7 @@ def apply_update() -> dict:
 
 
 quit_hook = None  # o tray define: encerra o ícone/processo de forma limpa
+open_desktop_hook = None  # o tray define: abre a janela nativa do Deck (processo separado)
 
 
 def restart_app() -> bool:
@@ -1926,6 +1927,27 @@ def panel_open_deck(request: Request):
     import webbrowser
     webbrowser.open(f"http://127.0.0.1:{_server_port()}")
     return {"ok": True}
+
+
+@app.post("/api/panel/open-desktop")
+def panel_open_desktop(request: Request):
+    _local_only(request)
+    if not open_desktop_hook:
+        return JSONResponse({"error": "Esta versão do Deck.exe não tem a janela nativa (precisa do novo instalador)."}, status_code=501)
+    return open_desktop_hook()
+
+
+@app.post("/api/panel/desktop-autostart")
+def panel_desktop_autostart(request: Request, payload: dict = Body(...)):
+    _local_only(request)
+    try:
+        cfg = load_config()
+        cfg["desktop_autostart"] = bool(payload.get("enabled"))
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        return {"desktop_autostart": cfg["desktop_autostart"]}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/api/panel/open-data")
