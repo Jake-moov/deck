@@ -103,28 +103,10 @@
     <!-- ===== Desktop ===== -->
     <section class="page" id="page-desktop">
       <header class="page-head">
-        <div><h1>Desktop</h1><p>Use o Deck numa janela nativa do Windows, sem precisar do navegador.</p></div>
+        <div><h1>Desktop</h1><p>O Deck aqui dentro, sem navegador. Mesmas configurações do celular.</p></div>
       </header>
-      <div class="scroll">
-        <div class="cards">
-          <div class="card">
-            <h2>Janela do Deck</h2>
-            <div class="setting">
-              <div><div class="l">Abrir Deck no desktop</div><div class="d">Abre a interface do Deck numa janela própria. Consome ~80–150 MB de RAM (uma aba de navegador).</div></div>
-              <button class="btn sm primary" id="openDesktop">Abrir</button>
-            </div>
-            <div class="setting">
-              <div><div class="l">Abrir junto com o Deck</div><div class="d">A janela do desktop abre automaticamente quando o Deck inicia.</div></div>
-              <label class="switch"><input type="checkbox" id="desktopAutostart"><span></span></label>
-            </div>
-          </div>
-          <div class="card">
-            <h2>Sobre</h2>
-            <div class="setting">
-              <div><div class="l">Uso principal</div><div class="d">A janela é redimensionável e a grade de botões se adapta ao tamanho. Todos os recursos do celular funcionam aqui também.</div></div>
-            </div>
-          </div>
-        </div>
+      <div class="desktop-embed">
+        <iframe id="desktopFrame" title="Deck" allow="autoplay"></iframe>
       </div>
     </section>
 
