@@ -225,13 +225,20 @@ html, body {
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(var(--cols, 3), 1fr);
+  /* botões com tamanho consistente: mín 84px, cresce pra preencher.
+     Se não couber, scroll vertical invisível. */
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   grid-auto-rows: auto;
   align-content: start;
   gap: 10px;
   padding: 4px 12px 10px;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.grid::-webkit-scrollbar {
+  display: none;
 }
 
 .key {
@@ -610,10 +617,37 @@ html, body {
 
 .now-playing.idle .np-btn { opacity: 0.45; }
 
+.np-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.np-btn-play svg {
+  width: 20px;
+  height: 20px;
+}
+.mic-ico svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+.mute-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.tab-ico svg {
+  width: 16px;
+  height: 16px;
+  vertical-align: -2px;
+}
+.app-icon svg {
+  width: 20px;
+  height: 20px;
+}
 .np-btn-play {
   width: 52px;
   height: 52px;
-  font-size: 17px;
   color: #2a1f08;
   border-color: rgba(255, 255, 255, 0.14);
   background: linear-gradient(180deg, #f0cd6d 0%, #d9ab4e 55%, #b3873a 100%);
