@@ -32,7 +32,7 @@
             <span class="tab-ico">⌨</span><span class="tab-lbl">Teclas</span>
           </button>
           <button class="tab-btn" data-screen="audio" aria-label="Áudio">
-            <span class="tab-ico">🎚</span><span class="tab-lbl">Áudio</span>
+            <span class="tab-ico"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></span><span class="tab-lbl">Áudio</span>
           </button>
         </div>
       </nav>
@@ -45,7 +45,7 @@
           <div class="apps-layout">
             <main class="grid" id="grid"></main>
             <aside class="quick-volume" id="quickVolume">
-              <button class="mute-btn" id="muteBtn" aria-label="Mudo">🔊</button>
+              <button class="mute-btn" id="muteBtn" aria-label="Mudo"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg></button>
               <span class="volume-readout" id="volumeReadout">--%</span>
             </aside>
           </div>
@@ -66,9 +66,9 @@
                   <div class="np-progress-knob" id="npProgressKnob"></div>
                 </div>
                 <div class="np-controls">
-                  <button class="np-btn" id="npPrev" aria-label="Anterior">⏮</button>
-                  <button class="np-btn np-btn-play" id="npPlayPause" aria-label="Play/Pause">▶</button>
-                  <button class="np-btn" id="npNext" aria-label="Próxima">⏭</button>
+                  <button class="np-btn" id="npPrev" aria-label="Anterior"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h2.5v14H6zM19.5 5v14L9.5 12z"/></svg></button>
+                  <button class="np-btn np-btn-play" id="npPlayPause" aria-label="Play/Pause"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+                  <button class="np-btn" id="npNext" aria-label="Próxima"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.5 5H18v14h-2.5zM4.5 5v14l10-7z"/></svg></button>
                 </div>
               </div>
             </div>
@@ -76,10 +76,10 @@
             <div class="audio-main">
               <div class="audio-mixer" id="audioMixer"></div>
               <aside class="mic-panel" id="micPanel">
-                <div class="mic-title"><span class="mic-ico">🎙</span><span>Mic</span></div>
+                <div class="mic-title"><span class="mic-ico"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-3.07A7 7 0 0 0 19 11h-2z"/></svg></span><span>Mic</span></div>
                 <span class="volume-readout" id="micReadout">--%</span>
                 <div class="mic-mutes">
-                  <button class="mute-btn" id="micMuteBtn" aria-label="Mute do microfone (sistema)" title="Mute do sistema">🔊</button>
+                  <button class="mute-btn" id="micMuteBtn" aria-label="Mute do microfone (sistema)" title="Mute do sistema"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg></button>
                   <button class="mute-btn discord-mute" id="discordMuteBtn" aria-label="Mute do Discord" title="Mute do Discord">
                     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.058a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.009c.12.099.246.198.373.292a.077.077 0 01-.006.127 12.3 12.3 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.84 19.84 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
                   </button>
